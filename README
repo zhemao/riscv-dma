@@ -1,0 +1,4 @@
+This repository holds the RTL that will be shared across various DMA
+controllers, including the FireBox RDMA controller and the Hurricane
+MemCpy accelerator. There is also a standalone unit which can perform transfers
+within the CPU's main memory.
