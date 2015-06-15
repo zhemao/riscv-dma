@@ -26,18 +26,20 @@ class CopyAccelerator extends RoCC with CoreParameters {
   block_buffer.io.cmd.bits.nbytes := nbytes
   block_buffer.io.cmd.bits.byte := UInt(0)
 
-  io.cmd.ready := (state === s_idle)
+  val cmd = Queue(io.cmd)
+  cmd.ready := (state === s_idle)
+  io.resp.valid := Bool(false)
 
   switch (state) {
     is (s_idle) {
-      when (io.cmd.valid) {
-        switch (io.cmd.bits.inst.funct) {
+      when (cmd.valid) {
+        switch (cmd.bits.inst.funct) {
           is (CustomInstructions.setAddrs) {
-            src := io.cmd.bits.rs1
-            dst := io.cmd.bits.rs2
+            src := cmd.bits.rs1
+            dst := cmd.bits.rs2
           }
           is (CustomInstructions.doCopy) {
-            nbytes := io.cmd.bits.rs1
+            nbytes := cmd.bits.rs1
             state := s_read
           }
         }
@@ -59,4 +61,14 @@ class CopyAccelerator extends RoCC with CoreParameters {
       }
     }
   }
+
+  io.busy := (state != s_idle)
+  io.interrupt := Bool(false)
+
+  io.mem.req.valid := Bool(false)
+  io.imem.acquire.valid := Bool(false)
+  io.imem.grant.ready := Bool(false)
+  io.iptw.req.valid := Bool(false)
+  io.dptw.req.valid := Bool(false)
+  io.pptw.req.valid := Bool(false)
 }
