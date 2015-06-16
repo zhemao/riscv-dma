@@ -1,4 +1,5 @@
 CC=riscv64-unknown-linux-gnu-gcc
+OBJDUMP=riscv64-unknown-linux-gnu-objdump
 LDFLAGS=-static -nostdlib -Tlink.ld
 CFLAGS=-O2 -Wall
 
@@ -6,8 +7,12 @@ TESTS=dma-test accum-test
 
 ELF=$(addsuffix .elf, $(TESTS))
 HEX=$(addsuffix .hex, $(TESTS))
+DUMP=$(addsuffix .dump, $(TESTS))
 
-default: $(ELF) $(HEX)
+default: $(ELF) $(HEX) $(DUMP)
+
+%.dump: %.elf
+	$(OBJDUMP) -D $< > $@
 
 %.hex: %.elf
 	elf2hex 16 32768 $< > $@
