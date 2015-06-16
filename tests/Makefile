@@ -27,4 +27,4 @@ default: $(ELF) $(HEX) $(DUMP)
 	$(CC) $(CFLAGS) -c $<
 
 clean:
-	rm -f *.elf *.hex *.o
+	rm -f *.dump *.elf *.hex *.o
