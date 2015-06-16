@@ -33,8 +33,10 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
 
   val address = Reg(init = UInt(0, paddrBits))
   val index = Reg(init = UInt(0, tlBeatAddrBits))
-  val wmask = Reg(init = UInt((1 << tlWriteMaskBits) - 1, tlWriteMaskBits))
+  val wmask = Reg(init = Acquire.fullWriteMask)
   val wdata = Reg(init = UInt(0, tlDataBits))
+
+  val next_beat_addr = address + UInt(1 << tlByteAddrBits)
 
   val buffer = Mem(UInt(width = tlDataBits), tlDataBeats, seqRead = true)
 
@@ -101,7 +103,7 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
         } .elsewhen (io.cmd.bits.opcode === BufferOp.write) {
           state := s_write
           wmask := Mux(byte_len === UInt(0),
-            UInt((1 << tlWriteMaskBits) - 1),
+            Acquire.fullWriteMask,
             ((UInt(1) << byte_len) - UInt(1)) << byte_off)
         }
 
@@ -116,7 +118,7 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
         } .otherwise {
           nbeats_send := nbeats_send - UInt(1)
           xact_id := xact_id + UInt(1)
-          address := address + UInt(1 << tlByteAddrBits)
+          address := next_beat_addr
         }
       }
 
@@ -145,10 +147,8 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
         } .otherwise {
           nbeats_send := nbeats_send - UInt(1)
           index := index + UInt(1)
-          when (!do_block) {
-            xact_id := xact_id + UInt(1)
-            address := address + UInt(1 << tlByteAddrBits)
-          }
+          address := next_beat_addr
+          when (!do_block) { xact_id := xact_id + UInt(1) }
         }
       }
       when (io.dmem.grant.valid) {
