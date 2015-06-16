@@ -70,6 +70,8 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
 
   io.cmd.ready := (state === s_idle)
   io.dmem.acquire.valid := sending
+  io.dmem.grant.ready := (state === s_read) || (state === s_write)
+  debug(io.dmem.grant.bits.g_type)
 
   switch (state) {
     is (s_idle) {
@@ -79,7 +81,8 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
         val byte_off = io.cmd.bits.addr(tlByteAddrBits - 1, 0)
 
         // make sure to zero out the byte address
-        address := io.cmd.bits.addr & ~UInt((1 << tlByteAddrBits) - 1)
+        address := Cat(io.cmd.bits.addr(paddrBits - 1, tlByteAddrBits),
+                       UInt(0, tlByteAddrBits))
 
         when (blockop) {
           xact_id := UInt(0)
