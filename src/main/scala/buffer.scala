@@ -49,9 +49,7 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
     Mux(do_block, Acquire.putBlockType, Acquire.putType),
     Mux(do_block, Acquire.getBlockType, Acquire.getType))
 
-  val union = Mux(state === s_write,
-    Cat(wmask, Bool(true)),
-    Cat(MT_Q, M_XRD, Bool(false)))
+  val union = Cat(Mux(state === s_write, wmask, Cat(MT_Q, M_XRD)), Bool(true))
 
   val xact_id = Reg(init = UInt(0, tlClientXactIdBits))
 
