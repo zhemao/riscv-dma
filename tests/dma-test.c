@@ -1,5 +1,7 @@
-int twobeat_src[8] = {0, 1, 2, 3, 4, 5, 6, 7};
-int twobeat_dst[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+#define ARR_SIZE 16
+
+int twobeat_src[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+int twobeat_dst[ARR_SIZE];
 
 #define COPY_ACCEL
 
@@ -23,10 +25,13 @@ static inline void copy_beat(int *src, int *dst, int nbytes) {
 
 int main(void)
 {
-	copy_beat(twobeat_src, twobeat_dst, sizeof(twobeat_src));
+	for (int i = 0; i < ARR_SIZE; i++)
+		twobeat_src[i] <<= 4;
 
-	for (int i = 0; i < 8; i++) {
-		if (twobeat_dst[i] != i)
+	copy_beat(twobeat_src, twobeat_dst, sizeof(twobeat_dst));
+
+	for (int i = 0; i < ARR_SIZE; i++) {
+		if (twobeat_dst[i] != twobeat_src[i])
 			return 1;
 	}
 
