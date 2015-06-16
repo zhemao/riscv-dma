@@ -111,14 +111,12 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
     }
     is (s_read) {
       when (io.dmem.acquire.ready) {
-        when (nbeats_send === UInt(0)) {
+        when (nbeats_send === UInt(0) || do_block) {
           sending := Bool(false)
         } .otherwise {
           nbeats_send := nbeats_send - UInt(1)
-          when (!do_block) {
-            xact_id := xact_id + UInt(1)
-            address := address + UInt(1 << tlByteAddrBits)
-          }
+          xact_id := xact_id + UInt(1)
+          address := address + UInt(1 << tlByteAddrBits)
         }
       }
 
@@ -154,7 +152,7 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
         }
       }
       when (io.dmem.grant.valid) {
-        when (nbeats_recv === UInt(0)) {
+        when (nbeats_recv === UInt(0) || do_block) {
           state := s_idle
         } .otherwise {
           nbeats_recv := nbeats_recv - UInt(1)
