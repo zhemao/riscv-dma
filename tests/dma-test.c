@@ -23,11 +23,6 @@ static inline void copy_beat(int *src, int *dst, int nbytes) {
 
 int main(void)
 {
-	for (int i = 0; i < 8; i++) {
-		if (twobeat_src[i] != i)
-			return 1;
-	}
-
 	copy_beat(twobeat_src, twobeat_dst, sizeof(twobeat_src));
 
 	for (int i = 0; i < 8; i++) {
