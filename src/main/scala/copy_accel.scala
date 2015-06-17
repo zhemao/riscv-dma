@@ -2,39 +2,43 @@ package dma
 
 import Chisel._
 import rocket.{RoCC, CoreParameters}
-import uncore.{TileLinkParameters}
+import uncore.{TileLinkParameters, ClientUncachedTileLinkIOArbiter}
 
 object CustomInstructions {
   val setAddrs = UInt(0)
   val doCopy = UInt(1)
 }
 
-class CopyAccelerator extends RoCC
+class CopyAccelerator extends RoCC with DMAParameters
     with CoreParameters with TileLinkParameters {
-  private val tlBlockAddrOffset = tlBeatAddrBits + tlByteAddrBits
-  private val oneBlock = UInt(1 << tlBlockAddrOffset)
-
-  val (s_idle :: s_read :: s_write :: s_wait :: Nil) = Enum(Bits(), 4)
-  val state = Reg(init = s_idle)
 
   val src = Reg(UInt(width = paddrBits))
   val dst = Reg(UInt(width = paddrBits))
   val nbytes = Reg(UInt(width = paddrBits))
-  val block_buffer = Module(new BlockBuffer)
 
-  block_buffer.io.dmem <> io.dmem
-  block_buffer.io.cmd.valid := (state === s_read) || (state === s_write)
-  block_buffer.io.cmd.bits.opcode := Mux(
-    state === s_write, BufferOp.write, BufferOp.read)
-  block_buffer.io.cmd.bits.addr := Mux(state === s_write, dst, src)
-  block_buffer.io.cmd.bits.index := UInt(0)
-  block_buffer.io.cmd.bits.nbytes := Mux(nbytes < oneBlock,
-    nbytes(tlBlockAddrOffset - 1, 0), oneBlock)
-  block_buffer.io.cmd.bits.byte := UInt(0)
+  val (s_idle :: s_req_tx :: s_req_rx :: s_wait :: Nil) = Enum(Bits(), 4)
+  val state = Reg(init = s_idle)
 
   val cmd = Queue(io.cmd)
   cmd.ready := (state === s_idle)
   io.resp.valid := Bool(false)
+
+  val tx = Module(new DMATx)
+  tx.io.req.valid := (state === s_req_tx)
+  tx.io.req.bits.start_addr := src
+  tx.io.req.bits.nbytes := nbytes
+
+  val rx = Module(new DMARx)
+  rx.io.req.valid := (state === s_req_rx)
+  rx.io.req.bits.start_addr := dst
+  rx.io.req.bits.nbytes := nbytes
+
+  rx.io.data <> Queue(tx.io.data, dmaQueueDepth)
+
+  val arb = Module(new ClientUncachedTileLinkIOArbiter(2))
+  arb.io.in(0) <> tx.io.dmem
+  arb.io.in(1) <> rx.io.dmem
+  arb.io.out <> io.dmem
 
   switch (state) {
     is (s_idle) {
@@ -46,30 +50,23 @@ class CopyAccelerator extends RoCC
           }
           is (CustomInstructions.doCopy) {
             nbytes := cmd.bits.rs1
-            state := s_read
+            state := s_req_tx
           }
         }
       }
     }
-    is (s_read) {
-      when (block_buffer.io.cmd.ready) {
-        state := s_write
+    is (s_req_tx) {
+      when (tx.io.req.ready) {
+        state := s_req_rx
       }
     }
-    is (s_write) {
-      when (block_buffer.io.cmd.ready) {
-        when (nbytes > oneBlock) {
-          nbytes := nbytes - oneBlock
-          src := src + oneBlock
-          dst := dst + oneBlock
-          state := s_read
-        } .otherwise {
-          state := s_wait
-        }
+    is (s_req_rx) {
+      when (rx.io.req.ready) {
+        state := s_wait
       }
     }
     is (s_wait) {
-      when (block_buffer.io.cmd.ready) {
+      when (rx.io.req.ready) {
         state := s_idle
       }
     }
