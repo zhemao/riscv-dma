@@ -76,28 +76,26 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
   switch (state) {
     is (s_idle) {
       when (io.cmd.valid) {
-        val blockop = (io.cmd.bits.nbytes === UInt(0))
         val byte_len = io.cmd.bits.nbytes(tlByteAddrBits - 1, 0)
         val byte_off = io.cmd.bits.addr(tlByteAddrBits - 1, 0)
+        val beat_off = io.cmd.bits.addr(tlBlockAddrOffset - 1, tlByteAddrBits)
 
         // make sure to zero out the byte address
         address := Cat(io.cmd.bits.addr(paddrBits - 1, tlByteAddrBits),
                        UInt(0, tlByteAddrBits))
 
-        when (blockop) {
-          xact_id := UInt(0)
-          index := UInt(0)
-          nbeats_send := UInt(tlDataBeats - 1)
-          nbeats_recv := UInt(tlDataBeats - 1)
-        } .otherwise {
-          val cmd_nbeats =
-            io.cmd.bits.nbytes(tlBlockAddrOffset - 1, tlByteAddrBits)
-          val nbeats = Mux(byte_len === UInt(0), cmd_nbeats - UInt(1), UInt(0))
-          xact_id := io.cmd.bits.index
-          index := io.cmd.bits.index
-          nbeats_send := nbeats
-          nbeats_recv := nbeats
-        }
+        val cmd_nbeats =
+          io.cmd.bits.nbytes(tlBlockAddrOffset - 1, tlByteAddrBits)
+        val nbeats = Mux(io.cmd.bits.nbytes === UInt(0),
+          // if nbytes is zero, we want a whole block
+          UInt(tlDataBeats - 1),
+          // otherwise just take whatever nbytes indicates
+          Mux(byte_len === UInt(0), cmd_nbeats - UInt(1), UInt(0)))
+        xact_id := io.cmd.bits.index
+        index := io.cmd.bits.index
+        nbeats_send := nbeats
+        nbeats_recv := nbeats
+
         when (io.cmd.bits.opcode === BufferOp.read) {
           state := s_read
         } .elsewhen (io.cmd.bits.opcode === BufferOp.write) {
@@ -107,7 +105,7 @@ class BlockBuffer extends Module with TileLinkParameters with CoreParameters {
             ((UInt(1) << byte_len) - UInt(1)) << byte_off)
         }
 
-        do_block := blockop
+        do_block := (io.cmd.bits.nbytes === UInt(0) && beat_off === UInt(0))
         sending := Bool(true)
       }
     }
