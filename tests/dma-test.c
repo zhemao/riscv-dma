@@ -1,7 +1,9 @@
-#define ARR_SIZE 16
-#define ARR_OFF  0
+#define COPY_SIZE 18
+#define SRC_OFF  5
+#define DST_OFF  2
+#define ARR_SIZE 32
 
-int twobeat_src[32] = {
+int twobeat_src[ARR_SIZE] = {
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
 	0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
 	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
@@ -31,12 +33,27 @@ static inline void copy_beat(int *src, int *dst, int nbytes) {
 
 int main(void)
 {
-	copy_beat(twobeat_src + ARR_OFF, twobeat_dst, ARR_SIZE * sizeof(int));
+	int *src = twobeat_src + SRC_OFF;
+	int *dst = twobeat_dst + DST_OFF;
+	int wrong = 0;
+	int i;
 
-	for (int i = 0; i < ARR_SIZE; i++) {
-		if (twobeat_dst[i] != twobeat_src[i + ARR_OFF])
-			return 1;
+	copy_beat(src, dst, COPY_SIZE * sizeof(int));
+
+	for (i = 0; i < DST_OFF; i++) {
+		if (twobeat_dst[i] != 0)
+			wrong = 1;
 	}
 
-	return 0;
+	for (i = 0; i < COPY_SIZE; i++) {
+		if (dst[i] != src[i])
+			wrong = 1;
+	}
+
+	for (i = DST_OFF + COPY_SIZE; i < ARR_SIZE; i++) {
+		if (twobeat_dst[i] != 0)
+			wrong = 1;
+	}
+
+	return wrong;
 }
