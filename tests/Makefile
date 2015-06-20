@@ -3,13 +3,17 @@ OBJDUMP=riscv64-unknown-linux-gnu-objdump
 LDFLAGS=-static -nostdlib -Tlink.ld
 CFLAGS=-O2 -Wall
 
-TESTS=dma-test ptw-test
+BAREMETAL_TESTS=dma-test
+KERNEL_TESTS=dma-test-linux
 
-ELF=$(addsuffix .elf, $(TESTS))
-HEX=$(addsuffix .hex, $(TESTS))
-DUMP=$(addsuffix .dump, $(TESTS))
+ELF=$(addsuffix .elf, $(BAREMETAL_TESTS))
+HEX=$(addsuffix .hex, $(BAREMETAL_TESTS))
+DUMP=$(addsuffix .dump, $(BAREMETAL_TESTS))
 
-default: $(ELF) $(HEX) $(DUMP)
+default: $(KERNEL_TESTS) $(ELF) $(HEX) $(DUMP)
+
+%: %.c
+	$(CC) -static $< -o $@
 
 %.dump: %.elf
 	$(OBJDUMP) -D $< > $@
@@ -27,4 +31,4 @@ default: $(ELF) $(HEX) $(DUMP)
 	$(CC) $(CFLAGS) -c $<
 
 clean:
-	rm -f *.dump *.elf *.hex *.o
+	rm -f $(BAREMETAL_TESTS) *.dump *.elf *.hex *.o

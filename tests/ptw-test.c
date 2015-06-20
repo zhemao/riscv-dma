@@ -1,4 +1,8 @@
-static inline unsigned long translate_addr(void *virtAddr)
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+static inline uintptr_t translate_addr(void *virtAddr)
 {
 	unsigned long physAddr;
 
@@ -11,7 +15,9 @@ static inline unsigned long translate_addr(void *virtAddr)
 
 int main(void)
 {
-	if (translate_addr(0) != 0)
-		return 1;
+	uint32_t arr[4];
+
+	printf("%p -> %lx\n", arr, translate_addr(arr));
+
 	return 0;
 }

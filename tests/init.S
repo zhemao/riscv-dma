@@ -6,6 +6,9 @@ _start:
   // enable extensions
   li a0, 0xC000
   csrs mstatus, a0
+  // set accelerator to physical mode
+  li a0, 1
+  custom0 0, a0, 0, 2
   // init stack pointer
   li sp, 0x10000000
   // call C code

@@ -1,3 +1,4 @@
 *.elf
 *.hex
 *.dump
+/dma-test-linux
