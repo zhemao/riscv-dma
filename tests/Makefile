@@ -3,7 +3,7 @@ OBJDUMP=riscv64-unknown-linux-gnu-objdump
 LDFLAGS=-static -nostdlib -Tlink.ld
 CFLAGS=-O2 -Wall
 
-TESTS=dma-test
+TESTS=dma-test ptw-test
 
 ELF=$(addsuffix .elf, $(TESTS))
 HEX=$(addsuffix .hex, $(TESTS))
