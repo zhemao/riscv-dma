@@ -72,7 +72,7 @@ class CopyAccelerator extends RoCC with DMAParameters
     }
   }
 
-  io.busy := (state != s_idle)
+  io.busy := (state != s_idle) || cmd.valid
   io.interrupt := Bool(false)
 
   io.mem.req.valid := Bool(false)
