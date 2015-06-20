@@ -108,12 +108,13 @@ class DMARx extends Module with DMAParameters
   val bytes_left = Reg(UInt(width = paddrBits))
   val index = Reg(UInt(width = log2Up(bufferWords)))
   val buffer = Vec.fill(bufferWords) { Reg(Bits(width = dmaDataBits)) }
-  val bitshift = Cat(offset, UInt(0, 3))
 
-  val wmask = UInt(Acquire.fullWriteMask) << bitshift
+  val wmask = Vec.tabulate(tlWriteMaskBits) {
+    i => UInt(i) >= offset && UInt(i / dmaDataBytes) <= index
+  }.toBits
 
   io.dmem.acquire.bits := Put(
-    client_xact_id = UInt(0),
+    client_xact_id = UInt(1),
     addr_block = address(addressBits - 1, tlBeatAddrBits),
     addr_beat = address(tlBeatAddrBits - 1, 0),
     data = buffer.toBits,
@@ -140,11 +141,13 @@ class DMARx extends Module with DMAParameters
     is (s_recv) {
       when (io.data.valid) {
         buffer(index) := io.data.bits
-        when (index === UInt(bufferWords - 1)) {
+        bytes_left := bytes_left - UInt(dmaDataBytes)
+        val beat_done = (index === UInt(bufferWords - 1))
+        val rx_done = (bytes_left === UInt(dmaDataBytes))
+        when (beat_done || rx_done) {
           state := s_acquire
         } .otherwise {
           index := index + UInt(1)
-          bytes_left := bytes_left - UInt(dmaDataBytes)
         }
       }
     }
