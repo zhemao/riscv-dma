@@ -4,8 +4,9 @@
 
 _start:
   // enable extensions
-  li a0, 0xC000
-  csrs mstatus, a0
+  //li a0, 0xC000
+  lui a0, 0xC
+  csrs sstatus, a0
   // set accelerator to physical mode
   li a0, 1
   custom0 0, a0, 0, 2
