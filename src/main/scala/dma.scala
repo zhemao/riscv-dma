@@ -33,7 +33,7 @@ class DMATx extends Module with DMAParameters
   private val blockAddrOffset = tlBeatAddrBits + tlByteAddrBits
   private val blockPgIdxBits = pgIdxBits - blockAddrOffset
   private val blocksPerPage = (1 << blockPgIdxBits)
-  private val wordAddrBits = tlBeatAddrBits - dmaDataOffset
+  private val wordAddrBits = tlByteAddrBits - dmaDataOffset
   private val wordsPerBeat = tlDataBits / dmaDataBits
 
   //val address = Reg(UInt(width = tlBlockAddrBits + tlBeatAddrBits))
