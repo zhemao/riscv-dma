@@ -36,7 +36,6 @@ class DMATx extends Module with DMAParameters
   private val wordAddrBits = tlByteAddrBits - dmaDataOffset
   private val wordsPerBeat = tlDataBits / dmaDataBits
 
-  //val address = Reg(UInt(width = tlBlockAddrBits + tlBeatAddrBits))
   val addr_block = Reg(UInt(width = tlBlockAddrBits))
   val addr_beat = Reg(UInt(width = tlBeatAddrBits))
   val addr_word = Reg(UInt(width = wordAddrBits))
@@ -105,7 +104,7 @@ class DMATx extends Module with DMAParameters
           val fullPhysAddr = Cat(io.dptw.resp.bits.pte.ppn, pgIdx)
           addr_block := fullPhysAddr(paddrBits - 1, blockAddrOffset)
           skip_beats := fullPhysAddr(blockAddrOffset - 1, tlByteAddrBits)
-          addr_word := fullPhysAddr(tlByteAddrBits - 1, 0)
+          addr_word := fullPhysAddr(tlByteAddrBits - 1, dmaDataOffset)
           state := s_acquire
         }
       }
@@ -165,31 +164,42 @@ class DMARx extends Module with DMAParameters
     val error = Bool(OUTPUT)
   }
 
-  private val addressBits = tlBlockAddrBits + tlBeatAddrBits
-  private val bufferWords = tlDataBits / dmaDataBits
-  private val beatPgIdxBits = pgIdxBits - tlByteAddrBits
-  private val beatsPerPage = (1 << beatPgIdxBits)
+  private val wordsPerBeat = tlDataBits / dmaDataBits
+  private val wordAddrBits = tlByteAddrBits - dmaDataOffset
+  private val blockPgIdxBits = pgIdxBits - blockAddrOffset
+  private val blocksPerPage = (1 << blockPgIdxBits)
+  private val blockAddrOffset = tlBeatAddrBits + tlByteAddrBits
 
-  val address = Reg(UInt(width = tlBlockAddrBits + tlBeatAddrBits))
-  val bytes_left = Reg(UInt(width = paddrBits))
-  val index = Reg(UInt(width = log2Up(bufferWords)))
+  val addr_block = Reg(UInt(width = tlBlockAddrBits))
+  val addr_beat = Reg(UInt(width = tlBeatAddrBits))
+  val addr_word = Reg(UInt(width = wordAddrBits))
+
   val offset = Reg(UInt(width = tlByteAddrBits))
-  val buffer = Vec.fill(bufferWords) { Reg(Bits(width = dmaDataBits)) }
+  val first_beat = Reg(UInt(width = tlBeatAddrBits))
+  val last_beat = Reg(UInt(width = tlBeatAddrBits))
+  val bytes_left = Reg(UInt(width = paddrBits))
+
+  val buffer = Vec.fill(tlDataBeats) {
+    Vec.fill(wordsPerBeat) { Reg(Bits(width = dmaDataBits)) }
+  }
 
   val vpn = Reg(UInt(width = vpnBits))
   val pgIdx = Reg(UInt(width = pgIdxBits))
   val error = Reg(init = Bool(false))
 
-  val wmask = Vec.tabulate(tlWriteMaskBits) {
-    i => UInt(i) >= offset && UInt(i / dmaDataBytes) <= index
+  val wmask = Vec.tabulate(tlWriteMaskBits) { i =>
+    addr_beat >= first_beat && addr_beat <= last_beat &&
+    UInt(i) >= offset && UInt(i / dmaDataBytes) <= addr_word
   }.toBits
 
-  io.dmem.acquire.bits := Put(
+  io.dmem.acquire.bits := Acquire(
+    is_builtin_type = Bool(true),
+    a_type = Acquire.putBlockType,
     client_xact_id = UInt(1),
-    addr_block = address(addressBits - 1, tlBeatAddrBits),
-    addr_beat = address(tlBeatAddrBits - 1, 0),
-    data = buffer.toBits,
-    wmask = wmask)
+    addr_block = addr_block,
+    addr_beat = addr_beat,
+    data = buffer(addr_beat).toBits,
+    union = Cat(wmask, Bool(true)))
 
   io.dptw.req.bits.addr := vpn
   io.dptw.req.bits.prv := Bits(0)
@@ -214,9 +224,11 @@ class DMARx extends Module with DMAParameters
         error := Bool(false)
         bytes_left := io.req.bits.nbytes
         when (io.phys) {
-          address := io.req.bits.start_addr(paddrBits - 1, tlByteAddrBits)
+          addr_block := io.req.bits.start_addr(paddrBits - 1, blockAddrOffset)
+          addr_beat := io.req.bits.start_addr(blockAddrOffset - 1, tlByteAddrBits)
+          addr_word := io.req.bits.start_addr(tlByteAddrBits - 1, dmaDataOffset)
+          first_beat := io.req.bits.start_addr(blockAddrOffset - 1, tlByteAddrBits)
           offset := io.req.bits.start_addr(tlByteAddrBits - 1, 0)
-          index := io.req.bits.start_addr(tlByteAddrBits - 1, dmaDataOffset)
           state := s_recv
         } .otherwise {
           vpn := io.req.bits.start_addr(paddrBits - 1, pgIdxBits)
@@ -237,31 +249,47 @@ class DMARx extends Module with DMAParameters
           state := s_idle
         } .otherwise {
           val fullPhysAddr = Cat(io.dptw.resp.bits.pte.ppn, pgIdx)
-          address := fullPhysAddr(paddrBits - 1, tlByteAddrBits)
+          addr_block := fullPhysAddr(paddrBits - 1, blockAddrOffset)
+          addr_beat := fullPhysAddr(blockAddrOffset - 1, tlByteAddrBits)
+          addr_word := fullPhysAddr(tlByteAddrBits - 1, dmaDataOffset)
+          first_beat := fullPhysAddr(blockAddrOffset - 1, tlByteAddrBits)
           offset := fullPhysAddr(tlByteAddrBits - 1, 0)
-          index := fullPhysAddr(tlByteAddrBits - 1, dmaDataOffset)
           state := s_recv
         }
       }
     }
     is (s_recv) {
       when (io.data.valid) {
-        buffer(index) := io.data.bits
-        bytes_left := bytes_left - UInt(dmaDataBytes)
-        val beat_done = (index === UInt(bufferWords - 1))
-        val rx_done = (bytes_left === UInt(dmaDataBytes))
-        when (beat_done || rx_done) {
+        buffer(addr_beat)(addr_word) := io.data.bits
+
+        when (bytes_left === UInt(dmaDataBytes)) {
+          last_beat := addr_beat
+          addr_beat := UInt(0)
           state := s_acquire
+        } .elsewhen (addr_word === UInt(wordsPerBeat - 1)) {
+          when (addr_beat != UInt(tlDataBeats - 1)) {
+            addr_beat := addr_beat + UInt(1)
+            addr_word := UInt(0)
+          } .otherwise {
+            last_beat := addr_beat
+            addr_beat := UInt(0)
+            state := s_acquire
+          }
         } .otherwise {
-          index := index + UInt(1)
+          addr_word := addr_word + UInt(1)
         }
+
+        bytes_left := bytes_left - UInt(dmaDataBytes)
       }
     }
     is (s_acquire) {
       when (io.dmem.acquire.ready) {
-        index := UInt(0)
-        offset := UInt(0)
-        state := s_grant
+        when (addr_beat === UInt(tlDataBeats - 1)) {
+          state := s_grant
+        } .elsewhen (addr_beat === first_beat) {
+          offset := UInt(0)
+        }
+        addr_beat := addr_beat + UInt(1)
       }
     }
     is (s_grant) {
@@ -269,17 +297,19 @@ class DMARx extends Module with DMAParameters
         when (bytes_left === UInt(0)) {
           state := s_idle
         } .otherwise {
-          val beatPgIdx = address(beatPgIdxBits - 1, 0)
-          val endOfPage = beatPgIdx === UInt(beatsPerPage - 1)
+          val blockPgIdx = addr_block(blockPgIdxBits - 1, 0)
+          val endOfPage = blockPgIdx === UInt(blocksPerPage - 1)
           when (!io.phys && endOfPage) {
             vpn := vpn + UInt(1)
             pgIdx := UInt(0)
             state := s_ptw_req
           } .otherwise {
-            address := address + UInt(1)
-            state := s_acquire
+            addr_block := addr_block + UInt(1)
+            addr_beat := UInt(0)
+            addr_word := UInt(0)
+            first_beat := UInt(0)
+            state := s_recv
           }
-          state := s_recv
         }
       }
     }
