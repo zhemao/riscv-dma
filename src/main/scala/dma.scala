@@ -174,10 +174,14 @@ class DMARx extends Module with DMAParameters
   val addr_beat = Reg(UInt(width = tlBeatAddrBits))
   val addr_word = Reg(UInt(width = wordAddrBits))
 
-  val offset = Reg(UInt(width = tlByteAddrBits))
   val first_beat = Reg(UInt(width = tlBeatAddrBits))
   val last_beat = Reg(UInt(width = tlBeatAddrBits))
   val bytes_left = Reg(UInt(width = paddrBits))
+
+  val full_block =
+    first_beat === UInt(0) &&
+    addr_word === UInt(0) &&
+    bytes_left > UInt(tlDataBeats * tlDataBytes)
 
   val buffer = Vec.fill(tlDataBeats) {
     Vec.fill(wordsPerBeat) { Reg(Bits(width = dmaDataBits)) }
@@ -187,36 +191,37 @@ class DMARx extends Module with DMAParameters
   val pgIdx = Reg(UInt(width = pgIdxBits))
   val error = Reg(init = Bool(false))
 
-  val wmask = Vec.tabulate(tlWriteMaskBits) { i =>
-    addr_beat >= first_beat && addr_beat <= last_beat &&
-    UInt(i) >= offset && UInt(i / dmaDataBytes) <= addr_word
-  }.toBits
+  val (s_idle :: s_check :: s_recv ::
+       s_ptw_req :: s_ptw_resp ::
+       s_get_acquire :: s_get_grant ::
+       s_put_acquire :: s_put_grant :: Nil) = Enum(Bits(), 9)
+  val state = Reg(init = s_idle)
+
+  val a_type = Mux(state === s_put_acquire,
+    Acquire.putBlockType, Acquire.getBlockType)
+  val union = Cat(Mux(state === s_put_acquire,
+    Acquire.fullWriteMask, Cat(MT_Q, M_XRD)), Bool(true))
 
   io.dmem.acquire.bits := Acquire(
     is_builtin_type = Bool(true),
-    a_type = Acquire.putBlockType,
+    a_type = a_type,
     client_xact_id = UInt(1),
     addr_block = addr_block,
     addr_beat = addr_beat,
     data = buffer(addr_beat).toBits,
-    union = Cat(wmask, Bool(true)))
+    union = union)
 
   io.dptw.req.bits.addr := vpn
   io.dptw.req.bits.prv := Bits(0)
   io.dptw.req.bits.store := Bool(true)
   io.dptw.req.bits.fetch := Bool(false)
 
-  io.error := error
-
-  val (s_idle :: s_ptw_req :: s_ptw_resp ::
-       s_recv :: s_acquire :: s_grant :: Nil) = Enum(Bits(), 6)
-  val state = Reg(init = s_idle)
-
-  io.dmem.acquire.valid := (state === s_acquire)
-  io.dmem.grant.ready := (state === s_grant)
+  io.dmem.acquire.valid := (state === s_get_acquire) || (state === s_put_acquire)
+  io.dmem.grant.ready := (state === s_get_grant) || (state === s_put_grant)
   io.data.ready := (state === s_recv)
   io.req.ready := (state === s_idle)
   io.dptw.req.valid := (state === s_ptw_req)
+  io.error := error
 
   switch (state) {
     is (s_idle) {
@@ -225,16 +230,23 @@ class DMARx extends Module with DMAParameters
         bytes_left := io.req.bits.nbytes
         when (io.phys) {
           addr_block := io.req.bits.start_addr(paddrBits - 1, blockAddrOffset)
-          addr_beat := io.req.bits.start_addr(blockAddrOffset - 1, tlByteAddrBits)
           addr_word := io.req.bits.start_addr(tlByteAddrBits - 1, dmaDataOffset)
           first_beat := io.req.bits.start_addr(blockAddrOffset - 1, tlByteAddrBits)
-          offset := io.req.bits.start_addr(tlByteAddrBits - 1, 0)
-          state := s_recv
+          state := s_check
         } .otherwise {
           vpn := io.req.bits.start_addr(paddrBits - 1, pgIdxBits)
           pgIdx := io.req.bits.start_addr(pgIdxBits - 1, 0)
           state := s_ptw_req
         }
+      }
+    }
+    is (s_check) {
+      when (full_block) {
+        addr_beat := first_beat
+        state := s_recv
+      } .otherwise {
+        addr_beat := UInt(0)
+        state := s_get_acquire
       }
     }
     is (s_ptw_req) {
@@ -250,11 +262,9 @@ class DMARx extends Module with DMAParameters
         } .otherwise {
           val fullPhysAddr = Cat(io.dptw.resp.bits.pte.ppn, pgIdx)
           addr_block := fullPhysAddr(paddrBits - 1, blockAddrOffset)
-          addr_beat := fullPhysAddr(blockAddrOffset - 1, tlByteAddrBits)
           addr_word := fullPhysAddr(tlByteAddrBits - 1, dmaDataOffset)
           first_beat := fullPhysAddr(blockAddrOffset - 1, tlByteAddrBits)
-          offset := fullPhysAddr(tlByteAddrBits - 1, 0)
-          state := s_recv
+          state := s_check
         }
       }
     }
@@ -265,7 +275,7 @@ class DMARx extends Module with DMAParameters
         when (bytes_left === UInt(dmaDataBytes)) {
           last_beat := addr_beat
           addr_beat := UInt(0)
-          state := s_acquire
+          state := s_put_acquire
         } .elsewhen (addr_word === UInt(wordsPerBeat - 1)) {
           when (addr_beat != UInt(tlDataBeats - 1)) {
             addr_beat := addr_beat + UInt(1)
@@ -273,7 +283,7 @@ class DMARx extends Module with DMAParameters
           } .otherwise {
             last_beat := addr_beat
             addr_beat := UInt(0)
-            state := s_acquire
+            state := s_put_acquire
           }
         } .otherwise {
           addr_word := addr_word + UInt(1)
@@ -282,17 +292,35 @@ class DMARx extends Module with DMAParameters
         bytes_left := bytes_left - UInt(dmaDataBytes)
       }
     }
-    is (s_acquire) {
+    is (s_get_acquire) {
+      when (io.dmem.acquire.ready) {
+        state := s_get_grant
+      }
+    }
+    is (s_get_grant) {
+      when (io.dmem.grant.valid) {
+        for (i <- 0 until wordsPerBeat) {
+          buffer(addr_beat)(i) := io.dmem.grant.bits.data(
+            (i + 1) * dmaDataBits - 1, 
+            i * dmaDataBits)
+        }
+        when (addr_beat === UInt(tlDataBeats - 1)) {
+          addr_beat := first_beat
+          state := s_recv
+        } .otherwise {
+          addr_beat := addr_beat + UInt(1)
+        }
+      }
+    }
+    is (s_put_acquire) {
       when (io.dmem.acquire.ready) {
         when (addr_beat === UInt(tlDataBeats - 1)) {
-          state := s_grant
-        } .elsewhen (addr_beat === first_beat) {
-          offset := UInt(0)
+          state := s_put_grant
         }
         addr_beat := addr_beat + UInt(1)
       }
     }
-    is (s_grant) {
+    is (s_put_grant) {
       when (io.dmem.grant.valid) {
         when (bytes_left === UInt(0)) {
           state := s_idle
@@ -308,7 +336,7 @@ class DMARx extends Module with DMAParameters
             addr_beat := UInt(0)
             addr_word := UInt(0)
             first_beat := UInt(0)
-            state := s_recv
+            state := s_check
           }
         }
       }
