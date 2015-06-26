@@ -63,5 +63,8 @@ int main(void)
 	if (!error)
 		printf("Copy completed with no errors.\n");
 
+	free(twopage_src);
+	free(twopage_dst);
+
 	return error;
 }
