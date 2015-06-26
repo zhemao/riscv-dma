@@ -8,6 +8,7 @@ _start:
   csrs sstatus, a0
   // set accelerator to physical mode
   li a0, 1
+  csrw 0x803, a0
   custom0 0, a0, 0, 2
   // init stack pointer
   li sp, 0x10000000
