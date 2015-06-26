@@ -18,8 +18,7 @@ class CopyAccelerator extends RoCC with DMAParameters
   val nbytes = Reg(UInt(width = paddrBits))
   val phys = Reg(init = Bool(false))
 
-  val (s_idle :: s_req_tx :: s_req_rx ::
-       s_wait_dma :: s_error :: Nil) = Enum(Bits(), 5)
+  val (s_idle :: s_req :: s_wait_dma :: s_error :: Nil) = Enum(Bits(), 4)
   val state = Reg(init = s_idle)
 
   val cmd = Queue(io.cmd)
@@ -27,19 +26,18 @@ class CopyAccelerator extends RoCC with DMAParameters
 
   io.resp.valid := Bool(false)
 
-  val tx = Module(new DMATx)
-  tx.io.req.valid := (state === s_req_tx)
-  tx.io.req.bits.start_addr := src
-  tx.io.req.bits.nbytes := nbytes
+  val tx = Module(new TileLinkDMATx)
+  tx.io.cmd.valid := (state === s_req)
+  tx.io.cmd.bits.src_start := src
+  tx.io.cmd.bits.dst_start := dst
+  tx.io.cmd.bits.nbytes := nbytes
   tx.io.phys := phys
 
-  val rx = Module(new DMARx)
-  rx.io.req.valid := (state === s_req_rx)
-  rx.io.req.bits.start_addr := dst
-  rx.io.req.bits.nbytes := nbytes
+  val rx = Module(new TileLinkDMARx)
   rx.io.phys := phys
 
-  rx.io.data <> Queue(tx.io.data, dmaQueueDepth)
+  rx.io.net.acquire <> Queue(tx.io.net.acquire, dmaQueueDepth)
+  tx.io.net.grant <> Queue(rx.io.net.grant, dmaQueueDepth)
 
   val dmemArb = Module(new ClientUncachedTileLinkIOArbiter(2))
   dmemArb.io.in(0) <> tx.io.dmem
@@ -61,7 +59,7 @@ class CopyAccelerator extends RoCC with DMAParameters
           }
           is (CustomInstructions.doCopy) {
             nbytes := cmd.bits.rs1
-            state := s_req_tx
+            state := s_req
           }
           is (CustomInstructions.setPhys) {
             phys := cmd.bits.rs1(0)
@@ -69,20 +67,15 @@ class CopyAccelerator extends RoCC with DMAParameters
         }
       }
     }
-    is (s_req_tx) {
-      when (tx.io.req.ready) {
-        state := s_req_rx
-      }
-    }
-    is (s_req_rx) {
-      when (rx.io.req.ready) {
+    is (s_req) {
+      when (tx.io.cmd.ready) {
         state := s_wait_dma
       }
     }
     is (s_wait_dma) {
       when (rx.io.error || tx.io.error) {
         state := s_error
-      } .elsewhen (rx.io.req.ready) {
+      } .elsewhen (tx.io.cmd.ready && rx.io.idle) {
         state := s_idle
       }
     }
