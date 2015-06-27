@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include "dma-ext.h"
 
@@ -35,12 +36,16 @@ int main(void)
 	mat_a = malloc(N * N * sizeof(int));
 	mat_b = malloc(M * M * sizeof(int));
 
-	printf("mat_a at %p, mat_b at %p\n", mat_a, mat_b);
-
 	start = mat_a + ROW * N + COL;
 	nsegs = M;
 	seg_size = M * sizeof(int);
 	stride_size = (N - M) * sizeof(int);
+
+	printf("nsegs: %lu\n", nsegs);
+	printf("seg_size: %lu\n", seg_size);
+	printf("stride_size: %lu\n", stride_size);
+	printf("src offset: %lu\n", ((uintptr_t) start) % 64);
+	printf("dst offset: %lu\n", ((uintptr_t) mat_b) % 64);
 
 	for (i = 0; i < N * N; i++)
 		mat_a[i] = i;
