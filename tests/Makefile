@@ -12,7 +12,7 @@ DUMP=$(addsuffix .dump, $(BAREMETAL_TESTS))
 
 default: $(KERNEL_TESTS) $(ELF) $(HEX) $(DUMP)
 
-%: %.c dma-copy.h
+%: %.c dma-ext.h
 	$(CC) $(CFLAGS) -static $< -o $@
 
 %.dump: %.elf
@@ -21,7 +21,7 @@ default: $(KERNEL_TESTS) $(ELF) $(HEX) $(DUMP)
 %.hex: %.elf
 	elf2hex 16 32768 $< > $@
 
-%.elf: %.o init.o dma-copy.h
+%.elf: %.o init.o dma-ext.h
 	$(CC) $(LDFLAGS) $< init.o -o $@
 
 %.o: %.c

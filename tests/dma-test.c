@@ -1,8 +1,8 @@
-#include "dma-copy.h"
+#include "dma-ext.h"
 
 #define ARR_SIZE  32
 #define COPY_SIZE 22
-#define SRC_OFF   1
+#define SRC_OFF   3
 #define DST_OFF   5
 
 int twoblock_src[ARR_SIZE] = {
@@ -23,7 +23,7 @@ int main(void)
 	for (i = 0; i < ARR_SIZE; i++)
 		twoblock_dst[i] = 0;
 
-	dma_copy(src, dst, COPY_SIZE * sizeof(int));
+	dma_gather(src, dst, 1, COPY_SIZE * sizeof(int), 0);
 
 	for (i = 0; i < DST_OFF; i++) {
 		if (twoblock_dst[i] != 0)

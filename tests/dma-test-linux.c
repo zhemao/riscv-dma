@@ -2,69 +2,68 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include "dma-copy.h"
+#include "dma-ext.h"
 
-#define PAGE_SIZE 4096
-#define ARRAY_SIZE (2 * PAGE_SIZE)
+#define N 128
+#define M 32
 
-#define SRC_OFF  5
-#define DST_OFF  2
-#define COPY_SIZE (PAGE_SIZE + 20)
+#define ROW 32
+#define COL 64
+
+static int check_matrix(int *mat_a, int *mat_b)
+{
+	int a, b, i, j, error = 0;
+	for (i = 0; i < M; i++) {
+		for (j = 0; j < M; j++) {
+			a = mat_a[(ROW + i) * N + COL + j];
+			b = mat_b[i * M + j];
+			if (a != b) {
+				printf("expected %d, got %d\n", a, b);
+				error = 1;
+			}
+		}
+	}
+	return error;
+}
 
 int main(void)
 {
-	char *twopage_src, *twopage_dst;
-	char *src, *dst;
+	int *mat_a, *mat_b, *start;
+	unsigned long nsegs, seg_size, stride_size;
 	int i, error = 0;
 
-	twopage_src = malloc(ARRAY_SIZE);
-	twopage_dst = malloc(ARRAY_SIZE);
+	mat_a = malloc(N * N * sizeof(int));
+	mat_b = malloc(M * M * sizeof(int));
 
-	if (twopage_src == NULL || twopage_dst == NULL) {
-		fprintf(stderr, "Could not allocate memory\n");
-		exit(EXIT_FAILURE);
-	}
+	printf("mat_a at %p, mat_b at %p\n", mat_a, mat_b);
 
-	printf("src (%p), dst (%p)\n", twopage_src, twopage_dst);
+	start = mat_a + ROW * N + COL;
+	nsegs = M;
+	seg_size = M * sizeof(int);
+	stride_size = (N - M) * sizeof(int);
 
-	for (i = 0; i < ARRAY_SIZE; i++)
-		twopage_src[i] = i;
-	memset(twopage_dst, 0, ARRAY_SIZE);
+	for (i = 0; i < N * N; i++)
+		mat_a[i] = i;
+	memset(mat_b, 0, M * M * sizeof(int));
 
-	src = twopage_src + SRC_OFF;
-	dst = twopage_dst + DST_OFF;
+	dma_gather(start, mat_b, nsegs, seg_size, stride_size);
 
-	printf("copy %d from %p to %p\n", COPY_SIZE, src, dst);
+	if (check_matrix(mat_a, mat_b))
+		error = 1;
 
-	dma_copy(src, dst, COPY_SIZE);
+	for (i = 0; i < M * M; i++)
+		mat_b[i] *= 2;
 
-	for (i = 0; i < DST_OFF; i++) {
-		if (twopage_dst[i] != 0) {
-			printf("idx %d is %x not 0\n", i, twopage_dst[i]);
-			error = 1;
-		}
-	}
+	dma_scatter(mat_b, start, nsegs, seg_size, stride_size);
 
-	for (i = 0; i < COPY_SIZE; i++) {
-		if (dst[i] != src[i]) {
-			printf("idx %d is %x not %x\n",
-				i + DST_OFF, dst[i], src[i]);
-			error = 1;
-		}
-	}
-
-	for (i = DST_OFF + COPY_SIZE; i < ARRAY_SIZE; i++) {
-		if (twopage_dst[i] != 0) {
-			printf("idx %d is %x not 0\n", i, twopage_dst[i]);
-			error = 1;
-		}
-	}
+	if (check_matrix(mat_a, mat_b))
+		error = 1;
 
 	if (!error)
-		printf("Copy completed with no errors.\n");
+		printf("Copies completed with no errors.\n");
 
-	free(twopage_src);
-	free(twopage_dst);
+	free(mat_a);
+	free(mat_b);
 
 	return error;
 }
