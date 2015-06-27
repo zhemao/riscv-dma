@@ -118,6 +118,8 @@ class TileLinkDMATx extends DMAModule {
     xact_finished(recv_xact_id) := Bool(true)
   }
 
+  val first_block = Reg(Bool())
+
   val (s_idle :: s_prepare_read :: s_ptw_req :: s_ptw_resp ::
        s_dmem_acquire :: s_dmem_grant :: s_net_acquire :: s_wait_net ::
        s_wait_done :: Nil) = Enum(Bits(), 9)
@@ -184,12 +186,13 @@ class TileLinkDMATx extends DMAModule {
           align := dst_off - src_off
           align_dir := Bool(false)
         }
-        offset := dst_off
         // need to tack on the dst offset because
         // we will subtract #bytes in a block after transmission
-        bytes_left := io.cmd.bits.nbytes + dst_off
-        write_half := Bool(false)
-        read_half  := Bool(false)
+        bytes_left  := io.cmd.bits.nbytes + dst_off
+        offset      := dst_off
+        write_half  := Bool(false)
+        read_half   := Bool(false)
+        first_block := Bool(true)
       }
     }
     is (s_ptw_req) {
@@ -229,7 +232,7 @@ class TileLinkDMATx extends DMAModule {
       when (io.dmem.grant.valid) {
         when (beat_idx === UInt(tlDataBeats - 1)) {
           val bytes_in_buffer = UInt(tlBytesPerBlock) - align
-          val needs_more_data = align_dir && !write_half &&
+          val needs_more_data = align_dir && first_block &&
                                 bytes_in_buffer < bytes_left
           when (needs_more_data) {
             src_block := src_block + UInt(1)
@@ -238,6 +241,7 @@ class TileLinkDMATx extends DMAModule {
             state := s_wait_net
           }
           write_half := !write_half
+          first_block := Bool(false)
         }
         beat_idx := beat_idx + UInt(1)
       }
