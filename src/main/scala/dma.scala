@@ -209,7 +209,11 @@ class TileLinkDMATx extends DMAModule {
     }
     is (s_prepare_read) {
       val src_page_idx = src_block(blockPgIdxBits - 1, 0)
-      when (!io.phys && src_page_idx === UInt(0)) {
+      when (align >= bytes_left) {
+        // if there are enough bytes already in the buffer (the read shift)
+        // we can just keep sending
+        state := s_net_acquire
+      } .elsewhen (!io.phys && src_page_idx === UInt(0)) {
         vpn := vpn + UInt(1)
         page_idx := UInt(0)
         state := s_ptw_req
@@ -258,14 +262,7 @@ class TileLinkDMATx extends DMAModule {
             bytes_left := UInt(0)
             state := s_wait_done
           } .otherwise {
-            val src_page_idx = src_block(blockPgIdxBits - 1, 0)
-            // if there are enough bytes already in the buffer (the read shift)
-            // we can just keep sending
-            when (align >= bytes_left) {
-              state := s_net_acquire
-            } .otherwise {
-              state := s_prepare_read
-            }
+            state := s_prepare_read
             bytes_left := bytes_left - UInt(tlBytesPerBlock)
           }
           xact_id := xact_id + UInt(1)
