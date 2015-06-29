@@ -305,6 +305,7 @@ class TileLinkDMARx extends DMAModule {
   val net_xact_id = Reg(UInt(0, dmaXactIdBits))
   val net_acquire = io.net.acquire.bits
   val error = Reg(init = Bool(false))
+  val direction = Reg(Bool())
 
   val (s_idle :: s_recv :: s_ack :: s_prepare_recv ::
        s_get_acquire :: s_get_grant :: s_put_acquire :: s_put_grant ::
@@ -314,30 +315,32 @@ class TileLinkDMARx extends DMAModule {
   io.error := error
   io.idle := (state === s_idle)
 
+  val net_type = Mux(direction, Grant.putAckType, Grant.getDataBlockType)
+
   io.net.acquire.ready := (state === s_recv)
   io.net.grant.valid := (state === s_ack)
   io.net.grant.bits := Grant(
     is_builtin_type = Bool(true),
-    g_type = Grant.putAckType,
+    g_type = net_type,
     client_xact_id = net_xact_id,
     manager_xact_id = UInt(0),
-    addr_beat = UInt(0),
-    data = UInt(0))
+    addr_beat = beat_idx,
+    data = buffer(beat_idx))
 
-  val a_type = Mux(state === s_get_acquire,
+  val dmem_type = Mux(state === s_get_acquire,
     Acquire.getBlockType, Acquire.putBlockType)
-  val union = Cat(Mux(state === s_get_acquire,
+  val dmem_union = Cat(Mux(state === s_get_acquire,
     Cat(MT_Q, M_XRD), Acquire.fullWriteMask), Bool(true))
 
   io.dmem.acquire.valid := (state === s_get_acquire || state === s_put_acquire)
   io.dmem.acquire.bits := Acquire(
     is_builtin_type = Bool(true),
-    a_type = a_type,
+    a_type = dmem_type,
     client_xact_id = UInt(1),
     addr_block = addr_block,
     addr_beat = beat_idx,
     data = buffer(beat_idx),
-    union = union)
+    union = dmem_union)
   io.dmem.grant.ready := (state === s_get_grant || state === s_put_grant)
   debug(io.dmem.grant.bits.g_type)
 
@@ -362,12 +365,13 @@ class TileLinkDMARx extends DMAModule {
           page_idx := net_page_idx
           state := s_ptw_req
         }
+        direction := (io.net.acquire.bits.a_type === Acquire.putBlockType)
         net_xact_id := net_acquire.client_xact_id
       }
     }
     is (s_prepare_recv) {
       beat_idx := UInt(0)
-      when (net_acquire.union(0).toBool) {
+      when (direction && net_acquire.union(0).toBool) {
         // if alloc is requested, we need to read in to the buffer
         // before we start receiving
         state := s_get_acquire
@@ -401,23 +405,34 @@ class TileLinkDMARx extends DMAModule {
       when (io.dmem.grant.valid) {
         buffer(beat_idx) := io.dmem.grant.bits.data
         when (beat_idx === UInt(tlDataBeats - 1)) {
-          state := s_recv
+          when (direction) {
+            state := s_recv
+          } .otherwise {
+            state := s_ack
+          }
         }
         beat_idx := beat_idx + UInt(1)
       }
     }
     is (s_recv) {
       when (io.net.acquire.valid) {
-        buffer.write(beat_idx, net_acquire.data, net_acquire.full_wmask())
-        when (beat_idx === UInt(tlDataBeats - 1)) {
-          state := s_put_acquire
+        when (direction) {
+          buffer.write(beat_idx, net_acquire.data, net_acquire.full_wmask())
+          when (beat_idx === UInt(tlDataBeats - 1)) {
+            state := s_put_acquire
+          }
+          beat_idx := beat_idx + UInt(1)
+        } .otherwise {
+          state := s_get_acquire
         }
-        beat_idx := beat_idx + UInt(1)
       }
     }
     is (s_ack) {
       when (io.net.grant.ready) {
-        state := s_idle
+        when (direction || beat_idx === UInt(tlDataBeats - 1)) {
+          state := s_idle
+        }
+        beat_idx := beat_idx + UInt(1)
       }
     }
     is (s_put_acquire) {
