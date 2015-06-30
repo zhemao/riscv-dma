@@ -51,7 +51,7 @@ int main(void)
 		mat_a[i] = i;
 	memset(mat_b, 0, M * M * sizeof(int));
 
-	dma_gather(start, mat_b, nsegs, seg_size, stride_size);
+	dma_gather_l2r(start, mat_b, nsegs, seg_size, stride_size);
 
 	if (check_matrix(mat_a, mat_b))
 		error = 1;
@@ -59,7 +59,7 @@ int main(void)
 	for (i = 0; i < M * M; i++)
 		mat_b[i] *= 2;
 
-	dma_scatter(mat_b, start, nsegs, seg_size, stride_size);
+	dma_scatter_r2l(mat_b, start, nsegs, seg_size, stride_size);
 
 	if (check_matrix(mat_a, mat_b))
 		error = 1;

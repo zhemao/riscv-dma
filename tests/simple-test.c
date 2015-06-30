@@ -27,7 +27,7 @@ int main(void)
 	for (i = 0; i < ARR_SIZE; i++)
 		dst_array[i] = 0;
 
-	dma_gather(src, dst, 1, COPY_SIZE * sizeof(int), 0);
+	dma_gather_l2r(src, dst, 1, COPY_SIZE * sizeof(int), 0);
 
 	for (i = 0; i < DST_OFF; i++) {
 		if (dst_array[i] != 0)
