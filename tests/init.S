@@ -6,7 +6,7 @@ _start:
   // set accelerator to physical mode
   li a0, 1
   csrw 0x804, a0
-  // skip to end if hartid isn't 0
+  // don't proceed if hartid isn't 0
   csrr a0, mhartid
   bnez a0, extra_core
   // enable extensions
@@ -23,5 +23,4 @@ _finish:
   csrw mtohost, a0
   j _finish
 extra_core:
-  li a0, 1
-  j _finish
+  j extra_core
