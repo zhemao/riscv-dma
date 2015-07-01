@@ -3,13 +3,15 @@
 .global _start, twobeat_src, twobeat_dst
 
 _start:
+  // set accelerator to physical mode
+  li a0, 1
+  csrw 0x804, a0
+  // skip to end if hartid isn't 0
+  csrr a0, mhartid
+  bnez a0, extra_core
   // enable extensions
   lui a0, 0x4
   csrs sstatus, a0
-  // set accelerator to physical mode
-  li a0, 1
-  csrw 0x803, a0
-  custom0 0, a0, 0, 2
   // init stack pointer
   li sp, 0x10000000
   // call C code
@@ -19,4 +21,7 @@ _start:
   ori a0, a0, 1
 _finish:
   csrw mtohost, a0
+  j _finish
+extra_core:
+  li a0, 1
   j _finish

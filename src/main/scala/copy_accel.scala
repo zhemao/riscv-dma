@@ -5,26 +5,28 @@ import rocket.{RoCC, RoCCResponse, CoreParameters}
 import uncore.{TileLinkParameters, ClientUncachedTileLinkIOArbiter}
 
 object CustomInstructions {
-  val DMA_SCATTER = UInt(0)
-  val DMA_GATHER = UInt(1)
+  val DMA_SCATTER_L2R = UInt(0)
+  val DMA_GATHER_L2R  = UInt(1)
+  val DMA_SCATTER_R2L = UInt(2)
+  val DMA_GATHER_R2L  = UInt(3)
 }
 
 import CustomInstructions._
 
-class RoCCCSR extends Bundle with CoreParameters {
+class RoCCCSR extends DMABundle {
   val segment_size = UInt(width = paddrBits)
   val stride_size = UInt(width = paddrBits)
   val nsegments = UInt(width = paddrBits)
+  val remote_id = UInt(width = hostIdBits)
   val phys = Bool()
 }
 
-class CopyAccelerator extends RoCC with DMAParameters
-    with CoreParameters with TileLinkParameters {
-
+class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   val src = Reg(UInt(width = paddrBits))
   val dst = Reg(UInt(width = paddrBits))
   val segments_left = Reg(UInt(width = paddrBits))
   val scatter = Reg(Bool())
+  val direction = Reg(Bool())
 
   val (s_idle :: s_req :: s_wait_dma :: s_error :: Nil) = Enum(Bits(), 4)
   val state = Reg(init = s_idle)
@@ -38,20 +40,23 @@ class CopyAccelerator extends RoCC with DMAParameters
   csrs.segment_size := io.csrs(0)
   csrs.stride_size := io.csrs(1)
   csrs.nsegments := io.csrs(2)
-  csrs.phys := io.csrs(3) != UInt(0)
+  csrs.remote_id := io.csrs(3)
+  csrs.phys := io.csrs(4) != UInt(0)
 
   val tx = Module(new TileLinkDMATx)
+  tx.io.net <> io.net.tx
   tx.io.cmd.valid := (state === s_req)
   tx.io.cmd.bits.src_start := src
   tx.io.cmd.bits.dst_start := dst
   tx.io.cmd.bits.nbytes := csrs.segment_size
+  tx.io.cmd.bits.direction := direction
+  tx.io.cmd.bits.remote_id := csrs.remote_id
+  tx.io.host_id := io.host_id
   tx.io.phys := csrs.phys
 
   val rx = Module(new TileLinkDMARx)
+  rx.io.net <> io.net.rx
   rx.io.phys := csrs.phys
-
-  rx.io.net.acquire <> Queue(tx.io.net.acquire, dmaQueueDepth)
-  tx.io.net.grant <> Queue(rx.io.net.grant, dmaQueueDepth)
 
   val dmemArb = Module(new ClientUncachedTileLinkIOArbiter(2))
   dmemArb.io.in(0) <> tx.io.dmem
@@ -70,15 +75,14 @@ class CopyAccelerator extends RoCC with DMAParameters
     is (s_idle) {
       when (cmd.valid) {
         val funct = cmd.bits.inst.funct
-        when (funct === DMA_SCATTER || funct === DMA_GATHER) {
-          src := cmd.bits.rs1
-          dst := cmd.bits.rs2
-          segments_left := csrs.nsegments
-          scatter := (funct === DMA_SCATTER)
-          // If nsegments or segment_size is 0, there's nothing to do
-          when (csrs.nsegments != UInt(0) && csrs.segment_size != UInt(0)) {
-            state := s_req
-          }
+        src := cmd.bits.rs1
+        dst := cmd.bits.rs2
+        segments_left := csrs.nsegments
+        scatter := !funct(0)
+        direction := !funct(1)
+        // If nsegments or segment_size is 0, there's nothing to do
+        when (csrs.nsegments != UInt(0) && csrs.segment_size != UInt(0)) {
+          state := s_req
         }
       }
     }

@@ -2,7 +2,7 @@
 
 #define ARR_SIZE  64
 #define COPY_SIZE 32
-#define SRC_OFF   12
+#define SRC_OFF   3
 #define DST_OFF   8
 
 int src_array[ARR_SIZE] = {
@@ -27,7 +27,7 @@ int main(void)
 	for (i = 0; i < ARR_SIZE; i++)
 		dst_array[i] = 0;
 
-	dma_gather_l2r(src, dst, 1, COPY_SIZE * sizeof(int), 0);
+	dma_gather_r2l(0, src, dst, 1, COPY_SIZE * sizeof(int), 0);
 
 	for (i = 0; i < DST_OFF; i++) {
 		if (dst_array[i] != 0)

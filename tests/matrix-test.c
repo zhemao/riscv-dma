@@ -31,44 +31,47 @@ int main(void)
 {
 	int *mat_a, *mat_b, *start;
 	unsigned long nsegs, seg_size, stride_size;
+	unsigned long hartid = read_csr(mhartid);
 	int i, error = 0;
 
-	mat_a = malloc(N * N * sizeof(int));
-	mat_b = malloc(M * M * sizeof(int));
+	if (hartid == 0) {
+		mat_a = malloc(N * N * sizeof(int));
+		mat_b = malloc(M * M * sizeof(int));
 
-	start = mat_a + ROW * N + COL;
-	nsegs = M;
-	seg_size = M * sizeof(int);
-	stride_size = (N - M) * sizeof(int);
+		start = mat_a + ROW * N + COL;
+		nsegs = M;
+		seg_size = M * sizeof(int);
+		stride_size = (N - M) * sizeof(int);
 
-	printf("nsegs: %lu\n", nsegs);
-	printf("seg_size: %lu\n", seg_size);
-	printf("stride_size: %lu\n", stride_size);
-	printf("src offset: %lu\n", ((uintptr_t) start) % 64);
-	printf("dst offset: %lu\n", ((uintptr_t) mat_b) % 64);
+		printf("nsegs: %lu\n", nsegs);
+		printf("seg_size: %lu\n", seg_size);
+		printf("stride_size: %lu\n", stride_size);
+		printf("src offset: %lu\n", ((uintptr_t) start) % 64);
+		printf("dst offset: %lu\n", ((uintptr_t) mat_b) % 64);
 
-	for (i = 0; i < N * N; i++)
-		mat_a[i] = i;
-	memset(mat_b, 0, M * M * sizeof(int));
+		for (i = 0; i < N * N; i++)
+			mat_a[i] = i;
+		memset(mat_b, 0, M * M * sizeof(int));
 
-	dma_gather_l2r(start, mat_b, nsegs, seg_size, stride_size);
+		dma_gather_l2r(0, start, mat_b, nsegs, seg_size, stride_size);
 
-	if (check_matrix(mat_a, mat_b))
-		error = 1;
+		if (check_matrix(mat_a, mat_b))
+			error = 1;
 
-	for (i = 0; i < M * M; i++)
-		mat_b[i] *= 2;
+		for (i = 0; i < M * M; i++)
+			mat_b[i] *= 2;
 
-	dma_scatter_r2l(mat_b, start, nsegs, seg_size, stride_size);
+		dma_scatter_r2l(0, mat_b, start, nsegs, seg_size, stride_size);
 
-	if (check_matrix(mat_a, mat_b))
-		error = 1;
+		if (check_matrix(mat_a, mat_b))
+			error = 1;
 
-	if (!error)
-		printf("Copies completed with no errors.\n");
+		if (!error)
+			printf("Copies completed with no errors.\n");
 
-	free(mat_a);
-	free(mat_b);
+		free(mat_a);
+		free(mat_b);
+	}
 
 	return error;
 }

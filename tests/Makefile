@@ -4,11 +4,11 @@ LDFLAGS=-static -nostdlib -Tlink.ld
 CFLAGS=-O2 -Wall
 
 BAREMETAL_TESTS=simple-test
-KERNEL_TESTS=matrix-test
+KERNEL_TESTS=matrix-test ipi-test
 
 ELF=$(addsuffix .elf, $(BAREMETAL_TESTS))
 HEX=$(addsuffix .hex, $(BAREMETAL_TESTS))
-DUMP=$(addsuffix .dump, $(BAREMETAL_TESTS))
+DUMP=$(addsuffix .dump, $(KERNEL_TESTS) $(BAREMETAL_TESTS))
 
 default: $(KERNEL_TESTS) $(ELF) $(HEX) $(DUMP)
 
@@ -16,6 +16,9 @@ default: $(KERNEL_TESTS) $(ELF) $(HEX) $(DUMP)
 	$(CC) $(CFLAGS) -static $< -o $@
 
 %.dump: %.elf
+	$(OBJDUMP) -D $< > $@
+
+%.dump: %
 	$(OBJDUMP) -D $< > $@
 
 %.hex: %.elf
