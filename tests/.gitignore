@@ -2,3 +2,4 @@
 *.hex
 *.dump
 *-test
+*.o

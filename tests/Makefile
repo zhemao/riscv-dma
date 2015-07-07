@@ -1,38 +1,48 @@
 CC=riscv64-unknown-linux-gnu-gcc
 OBJDUMP=riscv64-unknown-linux-gnu-objdump
 BAREMETAL_LDFLAGS=-static -nostdlib -Tlink.ld
-KERNEL_LDFLAGS=-static -lpthread
+PK_LDFLAGS=-static
+LINUX_LDFLAGS=-pthread -lrt
 CFLAGS=-O2 -Wall
 
-BAREMETAL_TESTS=simple-test
-KERNEL_TESTS=matrix-test
+BAREMETAL_TESTS=simple-test error-test
+LINUX_TESTS=matrix-test barrier-test shmem-test lnx-simple-test
+PK_TESTS=pk-simple-test
 
 ELF=$(addsuffix .elf, $(BAREMETAL_TESTS))
 HEX=$(addsuffix .hex, $(BAREMETAL_TESTS))
-DUMP=$(addsuffix .dump, $(KERNEL_TESTS) $(BAREMETAL_TESTS))
+DUMP=$(addsuffix .dump, $(BAREMETAL_TESTS))
+LINUX_OBJS=$(addsuffix .o, $(LINUX_TESTS))
+PK_OBJS=$(addsuffix .o, $(PK_TESTS))
 
-default: $(KERNEL_TESTS) $(ELF) $(HEX) $(DUMP)
+default: $(LINUX_TESTS) $(PK_TESTS) $(ELF) $(HEX) $(DUMP)
 
-%: %.c dma-ext.h
-	$(CC) $(CFLAGS) $(KERNEL_LDFLAGS) $< -o $@
+$(LINUX_TESTS): %: %.o barrier.o
+	$(CC) $(CFLAGS) $< barrier.o $(LINUX_LDFLAGS) -o $@
 
-%.dump: %.elf
+$(PK_TESTS): %: %.o
+	$(CC) $(CFLAGS) $< $(PK_LDFLAGS) -o $@
+
+$(DUMP): %.dump: %.elf
 	$(OBJDUMP) -D $< > $@
 
-%.dump: %
-	$(OBJDUMP) -D $< > $@
-
-%.hex: %.elf
+$(HEX): %.hex: %.elf
 	elf2hex 16 32768 $< > $@
 
-%.elf: %.o init.o dma-ext.h
+$(ELF): %.elf: %.o init.o dma-ext.h
 	$(CC) $(BAREMETAL_LDFLAGS) $< init.o -o $@
 
-%.o: %.c
+$(LINUX_OBJS): %.o: %.c dma-ext.h getcpu.h shared-state.h
+	$(CC) $(CFLAGS) -c $<
+
+$(PK_OBJS): %.o: %.c dma-ext.h
+	$(CC) $(CFLAGS) -c $<
+
+%.o: %.c %.h
 	$(CC) $(CFLAGS) -c $<
 
 %.o: %.S
 	$(CC) $(CFLAGS) -c $<
 
 clean:
-	rm -f $(KERNEL_TESTS) *.dump *.elf *.hex *.o
+	rm -f $(LINUX_TESTS) *.dump *.elf *.hex *.o

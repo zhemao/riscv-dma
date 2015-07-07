@@ -2,8 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <sys/mman.h>
+
+#include <sys/wait.h>
+
+#include "barrier.h"
 #include "dma-ext.h"
+#include "shared-state.h"
+#include "getcpu.h"
 
 #define N 128
 #define M 32
@@ -13,65 +18,178 @@
 
 static int check_matrix(int *mat_a, int *mat_b)
 {
-	int a, b, i, j, error = 0;
+	int a, b, i, j, error_count = 0;
 	for (i = 0; i < M; i++) {
 		for (j = 0; j < M; j++) {
 			a = mat_a[(ROW + i) * N + COL + j];
 			b = mat_b[i * M + j];
-			if (a != b) {
+			if (a != b && error_count < 50) {
 				printf("expected %d, got %d\n", a, b);
-				error = 1;
+				error_count++;
 			}
 		}
 	}
+	return error_count > 0;
+}
+
+int master_process(struct barrier *barrier, struct shared_state *shared,
+		int *mat_a, int *mat_b)
+{
+	int *start;
+	unsigned long nsegs, seg_size, stride_size;
+	int i, cpu, error = 0, ret;
+
+	for (i = 0; i < N * N; i++)
+		mat_a[i] = i;
+	memset(mat_b, 0, M * M * sizeof(int));
+
+	getcpu(&shared->parent_cpu, NULL);
+
+	barrier_wait(barrier);
+
+	cpu = shared->child_cpu;
+	start = mat_a + ROW * N + COL;
+	nsegs = M;
+	seg_size = M * sizeof(int);
+	stride_size = (N - M) * sizeof(int);
+
+	printf("master (%d) -> slave (%d) put\n",
+			shared->parent_cpu, shared->child_cpu);
+	// send cutout to slave
+	ret = dma_gather_put(cpu, mat_b, start, seg_size, stride_size, nsegs);
+	if (ret) {
+		fprintf(stderr, "dma_gather_put failed with code %d\n", ret);
+		exit(EXIT_FAILURE);
+	}
+
+	barrier_wait(barrier);
+
+	// check that matrix b is unchanged
+	for (i = 0; i < M * M; i++) {
+		if (mat_b[i] != 0) {
+			printf("mat_b[%d] = %d\n", i, mat_b[i]);
+			error = 1;
+		}
+	}
+
+	// wait for slave to finish computing new matrix
+	barrier_wait(barrier);
+
+	printf("master (%d) <- slave (%d) get\n",
+			shared->parent_cpu, shared->child_cpu);
+	// read doubled data back from slave
+	ret = dma_scatter_get(cpu, start, mat_b, seg_size, stride_size, nsegs);
+	if (ret) {
+		fprintf(stderr, "dma_scatter_get failed with code %d\n", ret);
+		exit(EXIT_FAILURE);
+	}
+
+	// wait for slave to send its mat_b to ours
+	barrier_wait(barrier);
+
+	printf("master check data from slave\n");
+	if (check_matrix(mat_a, mat_b))
+		error = 1;
+
+	return error;
+}
+
+int slave_process(struct barrier *barrier, struct shared_state *shared,
+		int *mat_a, int *mat_b)
+{
+	int i, error = 0, cpu, ret;
+
+	for (i = 0; i < N * N; i++)
+		mat_a[i] = i;
+	memset(mat_b, 0, M * M * sizeof(int));
+
+	getcpu(&shared->child_cpu, NULL);
+
+	barrier_wait(barrier);
+
+	cpu = shared->parent_cpu;
+
+	// wait for master to finish transmission
+	barrier_wait(barrier);
+
+	printf("slave check data from master\n");
+	if (check_matrix(mat_a, mat_b))
+		error = 1;
+
+	for (i = 0; i < M * M; i++)
+		mat_b[i] *= 2;
+
+	barrier_wait(barrier);
+
+	printf("slave (%d) -> master (%d) put\n",
+			shared->child_cpu, shared->parent_cpu);
+	// send matrix b back to master
+	ret = dma_contig_put(cpu, mat_b, mat_b, M * M * sizeof(int));
+	if (ret) {
+		fprintf(stderr, "dma_contig_put failed with code %d\n", ret);
+		exit(EXIT_FAILURE);
+	}
+
+	// wait for master to finish reading matrix b back
+	barrier_wait(barrier);
+
+	// check that our matrix A is unchanged
+	for (i = 0; i < N * N; i++) {
+		if (mat_a[i] != i) {
+			printf("mat_a[%d] = %d\n", i, mat_a[i]);
+			error = 1;
+		}
+	}
+
 	return error;
 }
 
 int main(void)
 {
-	int *mat_a, *mat_b, *start;
-	unsigned long nsegs, seg_size, stride_size;
-	unsigned long hartid = read_csr(mhartid);
-	int i, error = 0;
+	int *mat_a, *mat_b;
+	pid_t id;
+	struct barrier barrier;
+	struct shared_state *shared;
+	int fd, ret, slave_status;
 
-	if (hartid == 0) {
-		mat_a = malloc(N * N * sizeof(int));
-		mat_b = malloc(M * M * sizeof(int));
+	mat_a = malloc(N * N * sizeof(int));
+	mat_b = malloc(M * M * sizeof(int));
 
-		start = mat_a + ROW * N + COL;
-		nsegs = M;
-		seg_size = M * sizeof(int);
-		stride_size = (N - M) * sizeof(int);
-
-		printf("nsegs: %lu\n", nsegs);
-		printf("seg_size: %lu\n", seg_size);
-		printf("stride_size: %lu\n", stride_size);
-		printf("src offset: %lu\n", ((uintptr_t) start) % 64);
-		printf("dst offset: %lu\n", ((uintptr_t) mat_b) % 64);
-
-		for (i = 0; i < N * N; i++)
-			mat_a[i] = i;
-		memset(mat_b, 0, M * M * sizeof(int));
-
-		dma_gather_l2r(0, start, mat_b, nsegs, seg_size, stride_size);
-
-		if (check_matrix(mat_a, mat_b))
-			error = 1;
-
-		for (i = 0; i < M * M; i++)
-			mat_b[i] *= 2;
-
-		dma_scatter_r2l(0, mat_b, start, nsegs, seg_size, stride_size);
-
-		if (check_matrix(mat_a, mat_b))
-			error = 1;
-
-		if (!error)
-			printf("Copies completed with no errors.\n");
-
-		free(mat_a);
-		free(mat_b);
+	if (barrier_init(&barrier, "matrix-barrier", 2)) {
+		perror("barrier_init");
+		return -1;
 	}
 
-	return error;
+	shared = open_shared_state("matrix-shared", &fd);
+
+	id = fork();
+	if (id < 0)
+		abort();
+	else if (id == 0) {
+		ret = slave_process(&barrier, shared, mat_a, mat_b);
+	} else {
+		ret = master_process(&barrier, shared, mat_a, mat_b);
+
+		if (waitpid(id, &slave_status, 0) < 0) {
+			perror("waitpid");
+			return -1;
+		}
+
+		if (!ret)
+			printf("Master process completed without errors\n");
+		if (WEXITSTATUS(slave_status) == 0)
+			printf("Slave process completed without errors\n");
+	}
+
+	free(mat_a);
+	free(mat_b);
+
+	if (barrier_close(&barrier)) {
+		perror("barrier_close");
+		return -1;
+	}
+
+	close_shared_state(shared, fd);
+
+	return ret;
 }

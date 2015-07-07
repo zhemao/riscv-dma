@@ -22,12 +22,14 @@ int main(void)
 	int *src = src_array + SRC_OFF;
 	int *dst = dst_array + DST_OFF;
 	int wrong = 0;
-	int i;
+	int i, err;
 
 	for (i = 0; i < ARR_SIZE; i++)
 		dst_array[i] = 0;
 
-	dma_gather_r2l(0, src, dst, 1, COPY_SIZE * sizeof(int), 0);
+	err = dma_gather_get(0, dst, src, COPY_SIZE * sizeof(int), 0, 1);
+	if (err)
+		return 1;
 
 	for (i = 0; i < DST_OFF; i++) {
 		if (dst_array[i] != 0)
