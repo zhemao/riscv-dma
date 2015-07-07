@@ -2,7 +2,7 @@ CC=riscv64-unknown-linux-gnu-gcc
 OBJDUMP=riscv64-unknown-linux-gnu-objdump
 BAREMETAL_LDFLAGS=-static -nostdlib -Tlink.ld
 KERNEL_LDFLAGS=-static -lpthread
-CFLAGS=-O2 -Wall -march=IMAFD -Wa,-march=IMAFDXcustom
+CFLAGS=-O2 -Wall
 
 BAREMETAL_TESTS=simple-test
 KERNEL_TESTS=matrix-test
