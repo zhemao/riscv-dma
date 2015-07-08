@@ -24,6 +24,13 @@ abstract class DMAModule extends Module
 abstract class DMABundle extends Bundle
   with DMAParameters with CoreParameters with TileLinkParameters
 
+object Errors {
+  val noerror   = Bits("b00")
+  val pageFault = Bits("b01")
+  val getNack   = Bits("b10")
+  val putNack   = Bits("b11")
+}
+
 class TileLinkDMACommand extends DMABundle {
   val src_start = UInt(width = paddrBits)
   val dst_start = UInt(width = paddrBits)
@@ -40,7 +47,7 @@ class TileLinkDMATx extends DMAModule {
     val net = new MasterUncachedTileLinkIO
     val host_id = UInt(INPUT, hostIdBits)
     val phys = Bool(INPUT)
-    val error = Bool(OUTPUT)
+    val error = Bits(OUTPUT, 2)
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -109,24 +116,16 @@ class TileLinkDMATx extends DMAModule {
     }
   }
 
-  val xact_finished = Vec.fill(dmaMaxXacts) { Reg(init = Bool(true)) }
-  val xact_id = Reg(init = UInt(0, dmaXactIdBits))
-
   val net_grant = io.net.grant.bits.payload
-
-  when (io.net.grant.fire()) {
-    val recv_xact_id = net_grant.client_xact_id(dmaXactIdBits - 1, 0)
-    xact_finished(recv_xact_id) := Bool(true)
-  }
 
   val first_block = Reg(Bool())
 
   val (s_idle :: s_prepare_read :: s_ptw_req :: s_ptw_resp ::
        s_dmem_get_acquire :: s_dmem_get_grant ::
-       s_net_put_acquire :: s_wait_net ::
+       s_net_put_acquire :: s_net_put_grant ::
        s_net_get_acquire :: s_net_get_grant ::
        s_dmem_put_acquire :: s_dmem_put_grant ::
-       s_copy_data :: s_wait_done :: Nil) = Enum(Bits(), 14)
+       s_copy_data :: Nil) = Enum(Bits(), 13)
   val state = Reg(init = s_idle)
 
   val full_block = (offset === UInt(0) && bytes_left > UInt(tlBytesPerBlock))
@@ -136,7 +135,7 @@ class TileLinkDMATx extends DMAModule {
   }.toBits
   val full_wmask = FillInterleaved(8, wmask)
 
-  val error = Reg(init = Bool(false))
+  val error = Reg(init = Bits(width = 2))
 
   io.cmd.ready := (state === s_idle)
   io.error := error
@@ -177,7 +176,7 @@ class TileLinkDMATx extends DMAModule {
   io.net.acquire.bits.payload := Acquire(
     is_builtin_type = Bool(true),
     a_type = net_type,
-    client_xact_id = xact_id,
+    client_xact_id = UInt(0),
     addr_block = remote_block,
     addr_beat = beat_idx,
     data = beat_data,
@@ -230,6 +229,7 @@ class TileLinkDMATx extends DMAModule {
         read_half   := Bool(false)
         first_block := Bool(true)
         direction   := cmd_dir
+        error       := Errors.noerror
       }
     }
     is (s_ptw_req) {
@@ -240,7 +240,7 @@ class TileLinkDMATx extends DMAModule {
     is (s_ptw_resp) {
       when (io.dptw.resp.valid) {
         when (io.dptw.resp.bits.error) {
-          error := Bool(true)
+          error := Errors.pageFault
           state := s_idle
         } .otherwise {
           val fullPhysAddr = Cat(io.dptw.resp.bits.pte.ppn, page_idx)
@@ -283,7 +283,8 @@ class TileLinkDMATx extends DMAModule {
               local_block := local_block + UInt(1)
               state := s_prepare_read
             } .otherwise {
-              state := s_wait_net
+              beat_idx := UInt(0)
+              state := s_net_put_acquire
             }
             write_half := !write_half
             first_block := Bool(false)
@@ -319,22 +320,15 @@ class TileLinkDMATx extends DMAModule {
     }
     is (s_dmem_put_grant) {
       when (io.dmem.grant.valid) {
-        remote_block := remote_block + UInt(1)
-        local_block := local_block + UInt(1)
         when (bytes_left <= UInt(tlBytesPerBlock)) {
           bytes_left := UInt(0)
-          state := s_wait_done
+          state := s_idle
         } .otherwise {
-          state := s_prepare_read
+          remote_block := remote_block + UInt(1)
+          local_block := local_block + UInt(1)
           bytes_left := bytes_left - UInt(tlBytesPerBlock)
+          state := s_prepare_read
         }
-      }
-    }
-    is (s_wait_net) {
-      when (xact_finished(xact_id)) {
-        beat_idx := UInt(0)
-        xact_finished(xact_id) := Bool(false)
-        state := s_net_put_acquire
       }
     }
     is (s_net_get_acquire) {
@@ -344,53 +338,58 @@ class TileLinkDMATx extends DMAModule {
     }
     is (s_net_get_grant) {
       when (io.net.grant.valid) {
-        val index = Cat(write_half, beat_idx)
-        send_buffer(index) := net_grant.data
-        when (beat_idx === UInt(tlDataBeats - 1)) {
-          val bytes_in_buffer = UInt(tlBytesPerBlock) - align
-          val needs_more_data = align_dir && first_block &&
-                                bytes_in_buffer < bytes_left
-          when (needs_more_data) {
-            remote_block := remote_block + UInt(1)
-            state := s_prepare_read
-          } .elsewhen (full_block) {
-            beat_idx := offset(tlBlockOffset - 1, tlByteAddrBits)
-            state := s_copy_data
-          } .otherwise {
-            beat_idx := UInt(0)
-            state := s_dmem_get_acquire
-          }
-          write_half := !write_half
-          first_block := Bool(false)
+        when (net_grant.g_type === Grant.nackType) {
+          error := Errors.getNack
+          state := s_idle
         } .otherwise {
-          beat_idx := beat_idx + UInt(1)
+          val index = Cat(write_half, beat_idx)
+          send_buffer(index) := net_grant.data
+          when (beat_idx === UInt(tlDataBeats - 1)) {
+            val bytes_in_buffer = UInt(tlBytesPerBlock) - align
+            val needs_more_data = align_dir && first_block &&
+                                  bytes_in_buffer < bytes_left
+            when (needs_more_data) {
+              remote_block := remote_block + UInt(1)
+              state := s_prepare_read
+            } .elsewhen (full_block) {
+              beat_idx := offset(tlBlockOffset - 1, tlByteAddrBits)
+              state := s_copy_data
+            } .otherwise {
+              beat_idx := UInt(0)
+              state := s_dmem_get_acquire
+            }
+            write_half := !write_half
+            first_block := Bool(false)
+          } .otherwise {
+            beat_idx := beat_idx + UInt(1)
+          }
         }
       }
     }
     is (s_net_put_acquire) {
       when (io.net.acquire.ready) {
         when (beat_idx === UInt(tlDataBeats - 1)) {
-          remote_block := remote_block + UInt(1)
-          local_block := local_block + UInt(1)
-          offset := UInt(0)
-          when (bytes_left <= UInt(tlBytesPerBlock)) {
-            bytes_left := UInt(0)
-            state := s_wait_done
-          } .otherwise {
-            state := s_prepare_read
-            bytes_left := bytes_left - UInt(tlBytesPerBlock)
-          }
-          xact_id := xact_id + UInt(1)
-          read_half := !read_half
+          state := s_net_put_grant
         }
         beat_idx := beat_idx + UInt(1)
       }
     }
-    is (s_wait_done) {
-      // wait for all in-flight requests to finish before ending operation
-      when (xact_finished.toBits.andR) {
-        xact_id := UInt(0)
-        state := s_idle
+    is (s_net_put_grant) {
+      when (io.net.grant.valid) {
+        when (net_grant.g_type === Grant.nackType) {
+          error := Errors.putNack
+          state := s_idle
+        } .elsewhen (bytes_left <= UInt(tlBytesPerBlock)) {
+          bytes_left := UInt(0)
+          state := s_idle
+        } .otherwise {
+          remote_block := remote_block + UInt(1)
+          local_block := local_block + UInt(1)
+          read_half := !read_half
+          offset := UInt(0)
+          bytes_left := bytes_left - UInt(tlBytesPerBlock)
+          state := s_prepare_read
+        }
       }
     }
   }
@@ -404,7 +403,6 @@ class TileLinkDMARx extends DMAModule {
     val host_id = UInt(INPUT, hostIdBits)
     val phys = Bool(INPUT)
     val idle = Bool(OUTPUT)
-    val error = Bool(OUTPUT)
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -417,21 +415,21 @@ class TileLinkDMARx extends DMAModule {
   val vpn = Reg(UInt(width = vpnBits))
   val net_xact_id = Reg(UInt(0, dmaXactIdBits))
   val net_acquire = io.net.acquire.bits.payload
-  val error = Reg(init = Bool(false))
   val direction = Reg(Bool())
+  val nack = Reg(Bool())
 
   val (s_idle :: s_recv :: s_ack :: s_prepare_recv ::
        s_get_acquire :: s_get_grant :: s_put_acquire :: s_put_grant ::
-       s_ptw_req :: s_ptw_resp :: Nil) = Enum(Bits(), 10)
+       s_ptw_req :: s_ptw_resp :: s_discard :: Nil) = Enum(Bits(), 11)
   val state = Reg(init = s_idle)
 
-  io.error := error
   io.idle := (state === s_idle)
 
   val remote_id = Reg(UInt(width = hostIdBits))
-  val net_type = Mux(direction, Grant.putAckType, Grant.getDataBlockType)
+  val net_type = Mux(nack, Grant.nackType,
+                 Mux(direction, Grant.putAckType, Grant.getDataBlockType))
 
-  io.net.acquire.ready := (state === s_recv)
+  io.net.acquire.ready := (state === s_recv) || (state === s_discard)
   io.net.grant.valid := (state === s_ack)
   io.net.grant.bits.payload := Grant(
     is_builtin_type = Bool(true),
@@ -504,8 +502,8 @@ class TileLinkDMARx extends DMAModule {
     is (s_ptw_resp) {
       when (io.dptw.resp.valid) {
         when (io.dptw.resp.bits.error) {
-          error := Bool(true)
-          state := s_idle
+          beat_idx := UInt(0)
+          state := s_discard
         } .otherwise {
           addr_block := Cat(io.dptw.resp.bits.pte.ppn, page_idx)
           state := s_prepare_recv
@@ -525,6 +523,7 @@ class TileLinkDMARx extends DMAModule {
           when (direction) {
             state := s_recv
           } .otherwise {
+            nack := Bool(false)
             state := s_ack
           }
         }
@@ -546,7 +545,7 @@ class TileLinkDMARx extends DMAModule {
     }
     is (s_ack) {
       when (io.net.grant.ready) {
-        when (direction || beat_idx === UInt(tlDataBeats - 1)) {
+        when (nack || direction || beat_idx === UInt(tlDataBeats - 1)) {
           state := s_idle
         }
         beat_idx := beat_idx + UInt(1)
@@ -562,7 +561,19 @@ class TileLinkDMARx extends DMAModule {
     }
     is (s_put_grant) {
       when (io.dmem.grant.valid) {
+        nack := Bool(false)
         state := s_ack
+      }
+    }
+    // this request cannot be processed, but we still need to consume
+    // all of the acquire beats
+    is (s_discard) {
+      when (io.net.acquire.valid) {
+        when (!direction || beat_idx === UInt(tlDataBeats - 1)) {
+          nack := Bool(true)
+          state := s_ack
+        }
+        beat_idx := beat_idx + UInt(1)
       }
     }
   }

@@ -28,13 +28,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   val scatter = Reg(Bool())
   val direction = Reg(Bool())
 
-  val (s_idle :: s_req :: s_wait_dma :: s_error :: Nil) = Enum(Bits(), 4)
+  val (s_idle :: s_req :: s_wait_dma :: s_resp :: Nil) = Enum(Bits(), 4)
   val state = Reg(init = s_idle)
-
-  val cmd = Queue(io.cmd)
-  cmd.ready := (state === s_idle)
-
-  io.resp.valid := Bool(false)
 
   val csrs = new RoCCCSR
   csrs.segment_size := io.csrs(0)
@@ -68,6 +63,18 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   ptwArb.io.requestors(1) <> rx.io.dptw
   ptwArb.io.ptw <> io.dptw
 
+  val cmd = Queue(io.cmd)
+  cmd.ready := (state === s_idle)
+
+  val inst_rd = Reg(Bits(width = 5))
+  val resp_wanted = Reg(init = Bool(false))
+
+  val resp = Decoupled(new RoCCResponse)
+  io.resp <> Queue(resp)
+  resp.valid := (state === s_resp)
+  resp.bits.data := tx.io.error
+  resp.bits.rd := inst_rd
+
   val small_step = csrs.segment_size
   val large_step = csrs.segment_size + csrs.stride_size
 
@@ -80,9 +87,13 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
         segments_left := csrs.nsegments
         scatter := !funct(0)
         direction := !funct(1)
+        inst_rd := cmd.bits.inst.rd
+        resp_wanted := cmd.bits.inst.xd
         // If nsegments or segment_size is 0, there's nothing to do
         when (csrs.nsegments != UInt(0) && csrs.segment_size != UInt(0)) {
           state := s_req
+        } .elsewhen (cmd.bits.inst.xd) {
+          state := s_resp
         }
       }
     }
@@ -102,15 +113,18 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
       }
     }
     is (s_wait_dma) {
-      when (rx.io.error || tx.io.error) {
-        state := s_error
-      } .elsewhen (tx.io.cmd.ready && rx.io.idle) {
-        state := s_idle
+      when (tx.io.cmd.ready) {
+        when (resp_wanted) {
+          state := s_resp
+        } .otherwise {
+          state := s_idle
+        }
       }
     }
-    is (s_error) {
-      // stay here until reset
-      state := s_error
+    is (s_resp) {
+      when (resp.ready) {
+        state := s_idle
+      }
     }
   }
 
