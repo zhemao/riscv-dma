@@ -17,6 +17,8 @@ int src_array[ARR_SIZE] = {
 };
 int dst_array[ARR_SIZE];
 
+#define PORT 16
+
 int main(void)
 {
 	int *src = src_array + SRC_OFF;
@@ -27,7 +29,9 @@ int main(void)
 	for (i = 0; i < ARR_SIZE; i++)
 		dst_array[i] = 0;
 
-	err = dma_gather_get(0, dst, src, COPY_SIZE * sizeof(int), 0, 1);
+	bind_port(PORT);
+
+	err = dma_gather_get(PORT, dst, src, COPY_SIZE * sizeof(int), 0, 1);
 	if (err)
 		return 1;
 

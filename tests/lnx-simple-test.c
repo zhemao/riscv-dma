@@ -5,11 +5,10 @@
 
 #include <sys/mman.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "dma-ext.h"
-#include "getcpu.h"
 #include "barrier.h"
-#include "shared-state.h"
 
 #define NITEMS 128
 
@@ -19,23 +18,22 @@ struct unshared_state {
 	int dst[NITEMS];
 };
 
-void parent_thread(struct unshared_state *unshared, struct shared_state *shared)
+#define PARENT_PORT 100
+#define CHILD_PORT 101
+
+void parent_thread(struct unshared_state *unshared)
 {
 	int i, ret;
 	struct barrier *barrier = &unshared->barrier;
 
-	getcpu(&shared->parent_cpu, NULL);
-
 	for (i = 0; i < NITEMS; i++)
 		unshared->src[i] = i;
 
+	bind_port(PARENT_PORT);
+
 	barrier_wait(barrier);
 
-	printf("Put from CPU %d to CPU %d\n",
-		shared->parent_cpu, shared->child_cpu);
-
-	ret = dma_contig_put(shared->child_cpu,
-			unshared->dst, unshared->src, NITEMS);
+	ret = dma_contig_put(CHILD_PORT, unshared->dst, unshared->src, NITEMS);
 
 	if (ret) {
 		fprintf(stderr, "send failed with error code: %d\n", ret);
@@ -46,12 +44,12 @@ void parent_thread(struct unshared_state *unshared, struct shared_state *shared)
 	barrier_wait(barrier);
 }
 
-void child_thread(struct unshared_state *unshared, struct shared_state *shared)
+void child_thread(struct unshared_state *unshared)
 {
 	int i, error;
 	struct barrier *barrier = &unshared->barrier;
 
-	getcpu(&shared->child_cpu, NULL);
+	bind_port(CHILD_PORT);
 
 	memset(unshared->dst, 0, NITEMS);
 
@@ -75,12 +73,9 @@ void child_thread(struct unshared_state *unshared, struct shared_state *shared)
 
 int main(void)
 {
-	struct shared_state *shared;
 	struct unshared_state *unshared;
-	int fd;
 	pid_t pid;
 
-	shared = open_shared_state("lnx-simple-shared", &fd);
 	unshared = malloc(sizeof(struct unshared_state));
 
 	if (barrier_init(&unshared->barrier, "lnx-simple-barrier", 2)) {
@@ -95,16 +90,14 @@ int main(void)
 	}
 
 	if (pid == 0) {
-		child_thread(unshared, shared);
+		child_thread(unshared);
 	} else {
-		parent_thread(unshared, shared);
+		parent_thread(unshared);
 		if (waitpid(pid, NULL, 0) < 0) {
 			perror("waitpid");
 			exit(EXIT_FAILURE);
 		}
 	}
-
-	close_shared_state(shared, fd);
 
 	if (barrier_close(&unshared->barrier)) {
 		perror("barrier_close");

@@ -14,8 +14,7 @@ trait DMAParameters extends UsesParameters {
   val dmaDataOffset = log2Up(dmaDataBytes)
   val dmaMaxXacts = params(DMAMaxXacts)
   val dmaXactIdBits = log2Up(dmaMaxXacts)
-  val nCores = params(HTIFNCores)
-  val hostIdBits = log2Up(nCores)
+  val lnHeaderBits = params(LNHeaderBits)
 }
 
 abstract class DMAModule extends Module
@@ -35,7 +34,9 @@ class TileLinkDMACommand extends DMABundle {
   val src_start = UInt(width = paddrBits)
   val dst_start = UInt(width = paddrBits)
   val nbytes = UInt(width = paddrBits)
-  val remote_id = UInt(width = hostIdBits)
+  val remote_port = UInt(width = lnHeaderBits)
+  val local_port = UInt(width = lnHeaderBits)
+  val xact_id = UInt(width = dmaXactIdBits)
   val direction = Bool()
 }
 
@@ -45,7 +46,6 @@ class TileLinkDMATx extends DMAModule {
     val dmem = new ClientUncachedTileLinkIO
     val dptw = new TLBPTWIO
     val net = new MasterUncachedTileLinkIO
-    val host_id = UInt(INPUT, hostIdBits)
     val phys = Bool(INPUT)
     val error = Bits(OUTPUT, 2)
   }
@@ -146,7 +146,9 @@ class TileLinkDMATx extends DMAModule {
     Cat(Acquire.fullWriteMask, Bool(true)),
     Cat(MT_Q, M_XRD, Bool(true)))
 
-  val remote_id = Reg(UInt(width = hostIdBits))
+  val remote_port = Reg(UInt(width = lnHeaderBits))
+  val local_port = Reg(UInt(width = lnHeaderBits))
+  val xact_id = Reg(UInt(width = dmaXactIdBits))
 
   io.dmem.grant.ready := (state === s_dmem_get_grant ||
                           state === s_dmem_put_grant)
@@ -155,7 +157,7 @@ class TileLinkDMATx extends DMAModule {
   io.dmem.acquire.bits := Acquire(
     is_builtin_type = Bool(true),
     a_type = dmem_type,
-    client_xact_id = UInt(0),
+    client_xact_id = xact_id,
     addr_block = local_block,
     addr_beat = beat_idx,
     data = write_buffer(beat_idx),
@@ -181,8 +183,8 @@ class TileLinkDMATx extends DMAModule {
     addr_beat = beat_idx,
     data = beat_data,
     union = net_union)
-  io.net.acquire.bits.header.src := io.host_id
-  io.net.acquire.bits.header.dst := remote_id
+  io.net.acquire.bits.header.src := local_port
+  io.net.acquire.bits.header.dst := remote_port
 
   io.dptw.req.valid := (state === s_ptw_req)
   io.dptw.req.bits.addr := vpn
@@ -224,7 +226,9 @@ class TileLinkDMATx extends DMAModule {
         bytes_left  := io.cmd.bits.nbytes + dst_off
         offset      := dst_off
         beat_idx    := UInt(0)
-        remote_id   := io.cmd.bits.remote_id
+        remote_port := io.cmd.bits.remote_port
+        local_port  := io.cmd.bits.local_port
+        xact_id     := io.cmd.bits.xact_id
         write_half  := Bool(false)
         read_half   := Bool(false)
         first_block := Bool(true)
@@ -400,7 +404,7 @@ class TileLinkDMARx extends DMAModule {
     val net = new MasterUncachedTileLinkIO().flip
     val dmem = new ClientUncachedTileLinkIO
     val dptw = new TLBPTWIO
-    val host_id = UInt(INPUT, hostIdBits)
+    val local_port = UInt(INPUT, lnHeaderBits)
     val phys = Bool(INPUT)
     val idle = Bool(OUTPUT)
   }
@@ -425,7 +429,7 @@ class TileLinkDMARx extends DMAModule {
 
   io.idle := (state === s_idle)
 
-  val remote_id = Reg(UInt(width = hostIdBits))
+  val remote_port = Reg(UInt(width = lnHeaderBits))
   val net_type = Mux(nack, Grant.nackType,
                  Mux(direction, Grant.putAckType, Grant.getDataBlockType))
 
@@ -438,8 +442,8 @@ class TileLinkDMARx extends DMAModule {
     manager_xact_id = UInt(0),
     addr_beat = beat_idx,
     data = buffer(beat_idx))
-  io.net.grant.bits.header.src := io.host_id
-  io.net.grant.bits.header.dst := remote_id
+  io.net.grant.bits.header.src := io.local_port
+  io.net.grant.bits.header.dst := remote_port
 
   val dmem_type = Mux(state === s_get_acquire,
     Acquire.getBlockType, Acquire.putBlockType)
@@ -480,7 +484,7 @@ class TileLinkDMARx extends DMAModule {
           state := s_ptw_req
         }
         direction := (net_acquire.a_type === Acquire.putBlockType)
-        remote_id := io.net.acquire.bits.header.src
+        remote_port := io.net.acquire.bits.header.src
         net_xact_id := net_acquire.client_xact_id
       }
     }

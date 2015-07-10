@@ -32,7 +32,7 @@ $(HEX): %.hex: %.elf
 $(ELF): %.elf: %.o init.o dma-ext.h
 	$(CC) $(BAREMETAL_LDFLAGS) $< init.o -o $@
 
-$(LINUX_OBJS): %.o: %.c dma-ext.h getcpu.h shared-state.h
+$(LINUX_OBJS): %.o: %.c dma-ext.h
 	$(CC) $(CFLAGS) -c $<
 
 $(PK_OBJS): %.o: %.c dma-ext.h

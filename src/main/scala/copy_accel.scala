@@ -17,7 +17,9 @@ class RoCCCSR extends DMABundle {
   val segment_size = UInt(width = paddrBits)
   val stride_size = UInt(width = paddrBits)
   val nsegments = UInt(width = paddrBits)
-  val remote_id = UInt(width = hostIdBits)
+  val remote_port = UInt(width = lnHeaderBits)
+  val local_port = UInt(width = lnHeaderBits)
+  val xact_id = UInt(width = dmaXactIdBits)
   val phys = Bool()
 }
 
@@ -35,8 +37,10 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   csrs.segment_size := io.csrs(0)
   csrs.stride_size := io.csrs(1)
   csrs.nsegments := io.csrs(2)
-  csrs.remote_id := io.csrs(3)
-  csrs.phys := io.csrs(4) != UInt(0)
+  csrs.remote_port := io.csrs(3)
+  csrs.local_port := io.csrs(4)
+  csrs.xact_id := io.csrs(5)
+  csrs.phys := io.csrs(6) != UInt(0)
 
   val tx = Module(new TileLinkDMATx)
   tx.io.net <> io.net.tx
@@ -45,8 +49,9 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   tx.io.cmd.bits.dst_start := dst
   tx.io.cmd.bits.nbytes := csrs.segment_size
   tx.io.cmd.bits.direction := direction
-  tx.io.cmd.bits.remote_id := csrs.remote_id
-  tx.io.host_id := io.host_id
+  tx.io.cmd.bits.remote_port := csrs.remote_port
+  tx.io.cmd.bits.local_port := csrs.local_port
+  tx.io.cmd.bits.xact_id := csrs.xact_id
   tx.io.phys := csrs.phys
 
   val rx = Module(new TileLinkDMARx)
@@ -77,6 +82,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
 
   val small_step = csrs.segment_size
   val large_step = csrs.segment_size + csrs.stride_size
+
+  io.port := csrs.local_port
 
   switch (state) {
     is (s_idle) {
