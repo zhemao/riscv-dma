@@ -29,9 +29,14 @@ int main(void)
 	for (i = 0; i < ARR_SIZE; i++)
 		dst_array[i] = 0;
 
-	bind_port(PORT);
+	dma_bind_port(PORT);
+	dma_track_recv(dst, COPY_SIZE * sizeof(int));
 
 	err = dma_gather_get(PORT, dst, src, COPY_SIZE * sizeof(int), 0, 1);
+	if (err)
+		return 1;
+
+	err = dma_wait_recv();
 	if (err)
 		return 1;
 

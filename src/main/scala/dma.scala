@@ -23,7 +23,7 @@ abstract class DMAModule extends Module
 abstract class DMABundle extends Bundle
   with DMAParameters with CoreParameters with TileLinkParameters
 
-object Errors {
+object TxErrors {
   val noerror   = Bits("b00")
   val pageFault = Bits("b01")
   val getNack   = Bits("b10")
@@ -233,7 +233,7 @@ class TileLinkDMATx extends DMAModule {
         read_half   := Bool(false)
         first_block := Bool(true)
         direction   := cmd_dir
-        error       := Errors.noerror
+        error       := TxErrors.noerror
       }
     }
     is (s_ptw_req) {
@@ -244,7 +244,7 @@ class TileLinkDMATx extends DMAModule {
     is (s_ptw_resp) {
       when (io.dptw.resp.valid) {
         when (io.dptw.resp.bits.error) {
-          error := Errors.pageFault
+          error := TxErrors.pageFault
           state := s_idle
         } .otherwise {
           val fullPhysAddr = Cat(io.dptw.resp.bits.pte.ppn, page_idx)
@@ -343,7 +343,7 @@ class TileLinkDMATx extends DMAModule {
     is (s_net_get_grant) {
       when (io.net.grant.valid) {
         when (net_grant.g_type === Grant.nackType) {
-          error := Errors.getNack
+          error := TxErrors.getNack
           state := s_idle
         } .otherwise {
           val index = Cat(write_half, beat_idx)
@@ -381,7 +381,7 @@ class TileLinkDMATx extends DMAModule {
     is (s_net_put_grant) {
       when (io.net.grant.valid) {
         when (net_grant.g_type === Grant.nackType) {
-          error := Errors.putNack
+          error := TxErrors.putNack
           state := s_idle
         } .elsewhen (bytes_left <= UInt(tlBytesPerBlock)) {
           bytes_left := UInt(0)

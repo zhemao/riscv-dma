@@ -30,7 +30,7 @@ $(HEX): %.hex: %.elf
 	elf2hex 16 32768 $< > $@
 
 $(ELF): %.elf: %.o init.o dma-ext.h
-	$(CC) $(BAREMETAL_LDFLAGS) $< init.o -o $@
+	$(CC) $(BAREMETAL_LDFLAGS) init.o $< -o $@
 
 $(LINUX_OBJS): %.o: %.c dma-ext.h
 	$(CC) $(CFLAGS) -c $<

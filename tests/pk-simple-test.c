@@ -6,6 +6,7 @@
 #include "dma-ext.h"
 
 #define NITEMS 5000
+#define PORT 20
 
 int main(void)
 {
@@ -22,10 +23,21 @@ int main(void)
 
 	printf("Starting test\n");
 
+	dma_bind_port(PORT);
+
+	// set up to track a receive
+	dma_track_recv(dst, NITEMS);
+
 	// do a put to our own CPU
-	ret = dma_contig_put(0, dst, src, NITEMS);
+	ret = dma_contig_put(PORT, dst, src, NITEMS);
 	if (ret) {
-		printf("Error performing transfer\n");
+		printf("Error sending data: %d\n", ret);
+		exit(EXIT_FAILURE);
+	}
+
+	ret = dma_wait_recv();
+	if (ret) {
+		printf("Error receiving data: %d\n", ret);
 		exit(EXIT_FAILURE);
 	}
 

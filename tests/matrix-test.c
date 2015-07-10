@@ -44,7 +44,7 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 		mat_a[i] = i;
 	memset(mat_b, 0, M * M * sizeof(int));
 
-	bind_port(MASTER_PORT);
+	dma_bind_port(MASTER_PORT);
 	port = SLAVE_PORT;
 
 	barrier_wait(barrier);
@@ -99,7 +99,7 @@ int slave_process(struct barrier *barrier, int *mat_a, int *mat_b)
 		mat_a[i] = i;
 	memset(mat_b, 0, M * M * sizeof(int));
 
-	bind_port(SLAVE_PORT);
+	dma_bind_port(SLAVE_PORT);
 	port = MASTER_PORT;
 
 	barrier_wait(barrier);

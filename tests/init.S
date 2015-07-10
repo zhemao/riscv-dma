@@ -5,7 +5,7 @@
 _start:
   // set accelerator to physical mode
   li a0, 1
-  csrw 0x806, a0
+  csrw 0x805, a0
   // don't proceed if hartid isn't 0
   csrr a0, mhartid
   bnez a0, extra_core

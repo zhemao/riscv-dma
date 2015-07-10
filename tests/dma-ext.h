@@ -3,6 +3,14 @@
 
 #include <riscv-pk/encoding.h>
 
+#define DMA_RX_NOT_FINISHED 1
+#define DMA_RX_EARLY_FINISH 2
+#define DMA_RX_NACK 3
+
+#define DMA_TX_PAGEFAULT 1
+#define DMA_TX_GETNACK 2
+#define DMA_TX_PUTNACK 3
+
 static inline void setup_dma(int remote_port, unsigned long segsize,
 		unsigned long stride, unsigned long nsegments)
 {
@@ -92,9 +100,37 @@ dma_contig_get(int remote_port, void *dst, void *src, unsigned long len)
 	return dma_gather_get(remote_port, dst, src, len, 0, 1);
 }
 
-static inline void bind_port(int port)
+static inline void dma_bind_port(int port)
 {
 	write_csr(0x804, port);
+}
+
+static inline void dma_track_recv(void *dst, unsigned long nbytes)
+{
+	write_csr(0x800, nbytes);
+	asm volatile ("custom0 0, %[dst], 0, 4" : : [dst] "r" (dst));
+}
+
+static inline int dma_poll_recv(void)
+{
+	int err;
+
+	asm volatile ("custom0 %[err], 0, 0, 5" : [err] "=r" (err));
+
+	return err;
+}
+
+static inline int dma_wait_recv(void)
+{
+	int err;
+
+	do {
+		err = dma_poll_recv();
+	} while (err == DMA_RX_NOT_FINISHED);
+
+	asm volatile ("fence");
+
+	return err;
 }
 
 #endif

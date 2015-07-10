@@ -8,14 +8,12 @@
 #include <unistd.h>
 
 #include "dma-ext.h"
-#include "barrier.h"
 
-#define NITEMS 128
+#define NITEMS 5000
 
 struct unshared_state {
-	struct barrier barrier;
-	int src[NITEMS];
-	int dst[NITEMS];
+	uint8_t src[NITEMS];
+	uint8_t dst[NITEMS];
 };
 
 #define PARENT_PORT 100
@@ -24,45 +22,44 @@ struct unshared_state {
 void parent_thread(struct unshared_state *unshared)
 {
 	int i, ret;
-	struct barrier *barrier = &unshared->barrier;
+
+	dma_bind_port(PARENT_PORT);
 
 	for (i = 0; i < NITEMS; i++)
-		unshared->src[i] = i;
+		unshared->src[i] = i & 0xff;
 
-	bind_port(PARENT_PORT);
-
-	barrier_wait(barrier);
+	printf("Sending data\n");
 
 	ret = dma_contig_put(CHILD_PORT, unshared->dst, unshared->src, NITEMS);
-
 	if (ret) {
 		fprintf(stderr, "send failed with error code: %d\n", ret);
 		exit(EXIT_FAILURE);
 	}
 
-	// wait for child to get the data
-	barrier_wait(barrier);
+	printf("Data sent\n");
 }
 
 void child_thread(struct unshared_state *unshared)
 {
-	int i, error;
-	struct barrier *barrier = &unshared->barrier;
+	int i, ret, error = 0;
 
-	bind_port(CHILD_PORT);
+	dma_bind_port(CHILD_PORT);
 
-	memset(unshared->dst, 0, NITEMS);
+	dma_track_recv(unshared->dst, NITEMS);
 
-	barrier_wait(barrier);
+	printf("Waiting for data\n");
 
-	// wait for parent to send the data
-	barrier_wait(barrier);
-
-	asm volatile ("fence");
+	ret = dma_wait_recv();
+	if (ret) {
+		fprintf(stderr, "recv failed with error code: %d\n", ret);
+		exit(EXIT_FAILURE);
+	}
 
 	for (i = 0; i < NITEMS; i++) {
-		if (unshared->dst[i] != i) {
-			printf("Expected %d, got %d\n", i, unshared->dst[i]);
+		uint8_t expected = i & 0xff;
+		if (unshared->dst[i] != expected) {
+			printf("Expected %d, got %d\n",
+					expected, unshared->dst[i]);
 			error = 1;
 		}
 	}
@@ -78,10 +75,7 @@ int main(void)
 
 	unshared = malloc(sizeof(struct unshared_state));
 
-	if (barrier_init(&unshared->barrier, "lnx-simple-barrier", 2)) {
-		perror("barrier_init");
-		exit(EXIT_FAILURE);
-	}
+	memset(unshared, 0, sizeof(struct unshared_state));
 
 	pid = fork();
 	if (pid < 0) {
@@ -97,11 +91,6 @@ int main(void)
 			perror("waitpid");
 			exit(EXIT_FAILURE);
 		}
-	}
-
-	if (barrier_close(&unshared->barrier)) {
-		perror("barrier_close");
-		exit(EXIT_FAILURE);
 	}
 
 	free(unshared);
