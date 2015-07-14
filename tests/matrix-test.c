@@ -38,14 +38,19 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 {
 	int *start;
 	unsigned long nsegs, seg_size, stride_size;
-	int i, port, error = 0, ret;
+	struct dma_addr local_addr, remote_addr;
+	int i, error = 0, ret;
 
 	for (i = 0; i < N * N; i++)
 		mat_a[i] = i;
 	memset(mat_b, 0, M * M * sizeof(int));
 
-	dma_bind_port(MASTER_PORT);
-	port = SLAVE_PORT;
+	local_addr.addr = 0;
+	local_addr.port = MASTER_PORT;
+	dma_bind_addr(&local_addr);
+
+	remote_addr.addr = 0;
+	remote_addr.port = SLAVE_PORT;
 
 	barrier_wait(barrier);
 
@@ -55,7 +60,8 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	stride_size = (N - M) * sizeof(int);
 
 	// send cutout to slave
-	ret = dma_gather_put(port, mat_b, start, seg_size, stride_size, nsegs);
+	ret = dma_gather_put(&remote_addr, mat_b, start,
+			seg_size, stride_size, nsegs);
 	if (ret) {
 		fprintf(stderr, "dma_gather_put failed with code %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -75,7 +81,8 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	barrier_wait(barrier);
 
 	// read doubled data back from slave
-	ret = dma_scatter_get(port, start, mat_b, seg_size, stride_size, nsegs);
+	ret = dma_scatter_get(&remote_addr, start, mat_b,
+			seg_size, stride_size, nsegs);
 	if (ret) {
 		fprintf(stderr, "dma_scatter_get failed with code %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -93,14 +100,19 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 
 int slave_process(struct barrier *barrier, int *mat_a, int *mat_b)
 {
-	int i, error = 0, port, ret;
+	int i, error = 0, ret;
+	struct dma_addr local_addr, remote_addr;
 
 	for (i = 0; i < N * N; i++)
 		mat_a[i] = i;
 	memset(mat_b, 0, M * M * sizeof(int));
 
-	dma_bind_port(SLAVE_PORT);
-	port = MASTER_PORT;
+	local_addr.addr = 0;
+	local_addr.port = SLAVE_PORT;
+	dma_bind_addr(&local_addr);
+
+	remote_addr.addr = 0;
+	remote_addr.port = MASTER_PORT;
 
 	barrier_wait(barrier);
 
@@ -117,7 +129,7 @@ int slave_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	barrier_wait(barrier);
 
 	// send matrix b back to master
-	ret = dma_contig_put(port, mat_b, mat_b, M * M * sizeof(int));
+	ret = dma_contig_put(&remote_addr, mat_b, mat_b, M * M * sizeof(int));
 	if (ret) {
 		fprintf(stderr, "dma_contig_put failed with code %d\n", ret);
 		exit(EXIT_FAILURE);

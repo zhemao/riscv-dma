@@ -25,20 +25,24 @@ int main(void)
 	int *dst = dst_array + DST_OFF;
 	int wrong = 0;
 	int i, err;
+	struct dma_addr addr;
 
 	for (i = 0; i < ARR_SIZE; i++)
 		dst_array[i] = 0;
 
-	dma_bind_port(PORT);
-	dma_track_recv(dst, COPY_SIZE * sizeof(int));
+	addr.addr = 0;
+	addr.port = PORT;
+	dma_bind_addr(&addr);
+	// allow a write up to the end of the 
+	dma_track_recv(dst_array, ARR_SIZE * sizeof(int));
 
-	err = dma_gather_get(PORT, dst, src, COPY_SIZE * sizeof(int), 0, 1);
+	err = dma_gather_put(&addr, dst, src, COPY_SIZE * sizeof(int), 0, 1);
 	if (err)
-		return 1;
+		return err;
 
 	err = dma_wait_recv();
 	if (err)
-		return 1;
+		return err;
 
 	for (i = 0; i < DST_OFF; i++) {
 		if (dst_array[i] != 0)

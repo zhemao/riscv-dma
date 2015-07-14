@@ -34,8 +34,7 @@ class TileLinkDMACommand extends DMABundle {
   val src_start = UInt(width = paddrBits)
   val dst_start = UInt(width = paddrBits)
   val nbytes = UInt(width = paddrBits)
-  val remote_port = UInt(width = lnHeaderBits)
-  val local_port = UInt(width = lnHeaderBits)
+  val header = new RemoteHeader
   val xact_id = UInt(width = dmaXactIdBits)
   val direction = Bool()
 }
@@ -45,7 +44,7 @@ class TileLinkDMATx extends DMAModule {
     val cmd = Decoupled(new TileLinkDMACommand).flip
     val dmem = new ClientUncachedTileLinkIO
     val dptw = new TLBPTWIO
-    val net = new MasterUncachedTileLinkIO
+    val net = new RemoteTileLinkIO
     val phys = Bool(INPUT)
     val error = Bits(OUTPUT, 2)
   }
@@ -146,8 +145,7 @@ class TileLinkDMATx extends DMAModule {
     Cat(Acquire.fullWriteMask, Bool(true)),
     Cat(MT_Q, M_XRD, Bool(true)))
 
-  val remote_port = Reg(UInt(width = lnHeaderBits))
-  val local_port = Reg(UInt(width = lnHeaderBits))
+  val header = Reg(new RemoteHeader)
   val xact_id = Reg(UInt(width = dmaXactIdBits))
 
   io.dmem.grant.ready := (state === s_dmem_get_grant ||
@@ -183,8 +181,8 @@ class TileLinkDMATx extends DMAModule {
     addr_beat = beat_idx,
     data = beat_data,
     union = net_union)
-  io.net.acquire.bits.header.src := local_port
-  io.net.acquire.bits.header.dst := remote_port
+  io.net.acquire.bits.header := header
+  io.net.acquire.bits.last := (bytes_left <= UInt(tlBytesPerBlock))
 
   io.dptw.req.valid := (state === s_ptw_req)
   io.dptw.req.bits.addr := vpn
@@ -226,8 +224,7 @@ class TileLinkDMATx extends DMAModule {
         bytes_left  := io.cmd.bits.nbytes + dst_off
         offset      := dst_off
         beat_idx    := UInt(0)
-        remote_port := io.cmd.bits.remote_port
-        local_port  := io.cmd.bits.local_port
+        header      := io.cmd.bits.header
         xact_id     := io.cmd.bits.xact_id
         write_half  := Bool(false)
         read_half   := Bool(false)
@@ -401,12 +398,12 @@ class TileLinkDMATx extends DMAModule {
 
 class TileLinkDMARx extends DMAModule {
   val io = new Bundle {
-    val net = new MasterUncachedTileLinkIO().flip
+    val net = new RemoteTileLinkIO().flip
     val dmem = new ClientUncachedTileLinkIO
     val dptw = new TLBPTWIO
-    val local_port = UInt(INPUT, lnHeaderBits)
     val phys = Bool(INPUT)
     val idle = Bool(OUTPUT)
+    val local_addr = new RemoteAddress().asInput
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -429,7 +426,7 @@ class TileLinkDMARx extends DMAModule {
 
   io.idle := (state === s_idle)
 
-  val remote_port = Reg(UInt(width = lnHeaderBits))
+  val remote_addr = Reg(new RemoteAddress)
   val net_type = Mux(nack, Grant.nackType,
                  Mux(direction, Grant.putAckType, Grant.getDataBlockType))
 
@@ -442,8 +439,8 @@ class TileLinkDMARx extends DMAModule {
     manager_xact_id = UInt(0),
     addr_beat = beat_idx,
     data = buffer(beat_idx))
-  io.net.grant.bits.header.src := io.local_port
-  io.net.grant.bits.header.dst := remote_port
+  io.net.grant.bits.header.src := io.local_addr
+  io.net.grant.bits.header.dst := remote_addr
 
   val dmem_type = Mux(state === s_get_acquire,
     Acquire.getBlockType, Acquire.putBlockType)
@@ -484,7 +481,7 @@ class TileLinkDMARx extends DMAModule {
           state := s_ptw_req
         }
         direction := (net_acquire.a_type === Acquire.putBlockType)
-        remote_port := io.net.acquire.bits.header.src
+        remote_addr := io.net.acquire.bits.header.src
         net_xact_id := net_acquire.client_xact_id
       }
     }

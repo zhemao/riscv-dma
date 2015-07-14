@@ -12,6 +12,7 @@ int main(void)
 {
 	uint8_t *src, *dst;
 	int i, ret, error = 0;
+	struct dma_addr addr;
 
 	src = malloc(NITEMS);
 	dst = malloc(NITEMS);
@@ -23,13 +24,15 @@ int main(void)
 
 	printf("Starting test\n");
 
-	dma_bind_port(PORT);
+	addr.addr = 0;
+	addr.port = PORT;
+	dma_bind_addr(&addr);
 
 	// set up to track a receive
 	dma_track_recv(dst, NITEMS);
 
 	// do a put to our own CPU
-	ret = dma_contig_put(PORT, dst, src, NITEMS);
+	ret = dma_contig_put(&addr, dst, src, NITEMS);
 	if (ret) {
 		printf("Error sending data: %d\n", ret);
 		exit(EXIT_FAILURE);

@@ -22,15 +22,20 @@ struct unshared_state {
 void parent_thread(struct unshared_state *unshared)
 {
 	int i, ret;
+	struct dma_addr local_addr, remote_addr;
 
-	dma_bind_port(PARENT_PORT);
+	local_addr.addr = 0;
+	local_addr.port = PARENT_PORT;
+	dma_bind_addr(&local_addr);
 
 	for (i = 0; i < NITEMS; i++)
 		unshared->src[i] = i & 0xff;
 
 	printf("Sending data\n");
 
-	ret = dma_contig_put(CHILD_PORT, unshared->dst, unshared->src, NITEMS);
+	remote_addr.addr = 0;
+	remote_addr.port = CHILD_PORT;
+	ret = dma_contig_put(&remote_addr, unshared->dst, unshared->src, NITEMS);
 	if (ret) {
 		fprintf(stderr, "send failed with error code: %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -42,8 +47,11 @@ void parent_thread(struct unshared_state *unshared)
 void child_thread(struct unshared_state *unshared)
 {
 	int i, ret, error = 0;
+	struct dma_addr local_addr;
 
-	dma_bind_port(CHILD_PORT);
+	local_addr.addr = 0;
+	local_addr.port = CHILD_PORT;
+	dma_bind_addr(&local_addr);
 
 	dma_track_recv(unshared->dst, NITEMS);
 
