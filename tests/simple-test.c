@@ -18,7 +18,7 @@ int src_array[ARR_SIZE] = {
 int dst_array[ARR_SIZE];
 
 #define PORT 16
-#define IMMEDIATE 200
+#define IMMEDIATE 108
 
 int main(void)
 {

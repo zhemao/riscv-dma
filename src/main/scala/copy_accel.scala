@@ -253,6 +253,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
         } .elsewhen (funct === DMA_SEND_IMM) {
           dst := cmd.bits.rs1
           immediate := Bool(true)
+          direction := Bool(true)
           resp_rd := cmd.bits.inst.rd
           resp_wanted := cmd.bits.inst.xd
           state := s_req_tx

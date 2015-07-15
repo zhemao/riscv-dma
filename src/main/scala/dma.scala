@@ -211,10 +211,10 @@ class TileLinkDMATx extends DMAModule {
         val remote_start = Mux(cmd_dir, dst_start, src_start)
 
         when (io.cmd.bits.immediate) {
-          local_block := local_start(paddrBits - 1, tlBlockOffset)
-          beat_idx := local_start(tlBlockOffset - 1, tlByteAddrBits)
+          beat_idx := remote_start(tlBlockOffset - 1, tlByteAddrBits)
           state := s_net_imm_acquire
         } .elsewhen (io.phys) {
+          beat_idx := UInt(0)
           local_block := local_start(paddrBits - 1, tlBlockOffset)
           state := Mux(cmd_dir, s_dmem_get_acquire, s_net_get_acquire)
         } .otherwise {
@@ -238,7 +238,6 @@ class TileLinkDMATx extends DMAModule {
         // we will subtract #bytes in a block after transmission
         bytes_left  := io.cmd.bits.nbytes + dst_off
         offset      := dst_off
-        beat_idx    := UInt(0)
         header      := io.cmd.bits.header
         xact_id     := io.cmd.bits.xact_id
         write_half  := Bool(false)

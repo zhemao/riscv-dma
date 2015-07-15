@@ -7,12 +7,14 @@
 
 #define NITEMS 5000
 #define PORT 20
+#define IMMEDIATE 153
 
 int main(void)
 {
 	uint8_t *src, *dst;
 	int i, ret, error = 0;
 	struct dma_addr addr;
+	unsigned long imm_data;
 
 	src = malloc(NITEMS);
 	dst = malloc(NITEMS);
@@ -27,6 +29,16 @@ int main(void)
 	addr.addr = 0;
 	addr.port = PORT;
 	dma_bind_addr(&addr);
+
+	dma_track_immediate();
+	dma_send_immediate(&addr, IMMEDIATE);
+	error = dma_wait_recv();
+	if (error)
+		return -error;
+
+	imm_data = dma_read_immediate();
+	if (imm_data != IMMEDIATE)
+		return imm_data;
 
 	// set up to track a receive
 	dma_track_recv(dst, NITEMS);
