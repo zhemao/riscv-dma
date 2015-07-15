@@ -123,9 +123,7 @@ static inline void dma_track_recv(void *dst, unsigned long nbytes)
 static inline int dma_poll_recv(void)
 {
 	int err;
-
 	asm volatile ("custom0 %[err], 0, 0, 5" : [err] "=r" (err));
-
 	return err;
 }
 
@@ -151,6 +149,12 @@ static inline int dma_wait_recv(void)
 	return err;
 }
 
+static inline void dma_read_src_addr(struct dma_addr *addr)
+{
+	addr->addr = read_csr(0x808);
+	addr->port = read_csr(0x809);
+}
+
 static inline void dma_track_immediate(void)
 {
 	asm volatile ("custom0 0, zero, 1, 4");
@@ -158,11 +162,7 @@ static inline void dma_track_immediate(void)
 
 static inline unsigned long dma_read_immediate(void)
 {
-	unsigned long res;
-
-	asm volatile ("custom0 %[res], 0, 0, 7" : [res] "=r" (res));
-
-	return res;
+	return read_csr(0x80A);
 }
 
 #endif

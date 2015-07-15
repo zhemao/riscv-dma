@@ -6,14 +6,14 @@ LINUX_LDFLAGS=-pthread -lrt
 CFLAGS=-O2 -Wall
 
 BAREMETAL_TESTS=simple-test error-test
-LINUX_TESTS=matrix-test barrier-test shmem-test lnx-simple-test
+LINUX_TESTS=matrix-test barrier-test shmem-test lnx-simple-test client-test server-test
 PK_TESTS=pk-simple-test
+ALL_TESTS=$(BAREMETAL_TESTS) $(LINUX_TESTS) $(PK_TESTS)
 
 ELF=$(addsuffix .elf, $(BAREMETAL_TESTS))
 HEX=$(addsuffix .hex, $(BAREMETAL_TESTS))
 DUMP=$(addsuffix .dump, $(BAREMETAL_TESTS))
-LINUX_OBJS=$(addsuffix .o, $(LINUX_TESTS))
-PK_OBJS=$(addsuffix .o, $(PK_TESTS))
+MAIN_OBJS=$(addsuffix .o, $(ALL_TESTS))
 
 default: $(LINUX_TESTS) $(PK_TESTS) $(ELF) $(HEX) $(DUMP)
 
@@ -32,10 +32,7 @@ $(HEX): %.hex: %.elf
 $(ELF): %.elf: %.o init.o dma-ext.h
 	$(CC) $(BAREMETAL_LDFLAGS) init.o $< -o $@
 
-$(LINUX_OBJS): %.o: %.c dma-ext.h
-	$(CC) $(CFLAGS) -c $<
-
-$(PK_OBJS): %.o: %.c dma-ext.h
+$(MAIN_OBJS): %.o: %.c dma-ext.h
 	$(CC) $(CFLAGS) -c $<
 
 %.o: %.c %.h

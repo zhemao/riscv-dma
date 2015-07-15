@@ -12,12 +12,11 @@ object CustomInstructions {
   val DMA_TRACK_RECV  = UInt(4)
   val DMA_POLL_RECV   = UInt(5)
   val DMA_SEND_IMM    = UInt(6)
-  val DMA_READ_IMM    = UInt(7)
 }
 
 import CustomInstructions._
 
-class RoCCCSR extends DMABundle {
+class RoCCCSRFile extends DMABundle {
   val segment_size = UInt(width = paddrBits)
   val stride_size = UInt(width = paddrBits)
   val nsegments = UInt(width = paddrBits)
@@ -38,24 +37,14 @@ object RxErrors {
   val rxNack = Bits("b11")
 }
 
-class ValidLastIO[T <: Data](dType: T) extends Bundle {
-  val bits = dType.clone.asOutput
-  val valid = Bool(OUTPUT)
-  val last = Bool(OUTPUT)
-  override def clone = new ValidLastIO(dType).asInstanceOf[this.type]
-}
-
-object ValidLast {
-  def apply[T <: Data](dType: T) = new ValidLastIO(dType)
-}
-
 class RecvTracker extends DMAModule {
   val io = new Bundle {
     val cmd = Decoupled(new TrackerCmd).flip
-    val acquire = ValidLast(new Acquire).flip
-    val grant = Valid(new Grant).flip
+    val acquire = Valid(new RemoteNetworkIO(new Acquire)).flip
+    val grant = Valid(new RemoteNetworkIO(new Grant)).flip
     val error = Bits(OUTPUT, 2)
     val imm_data = UInt(OUTPUT, paddrBits)
+    val src_addr = new RemoteAddress().asOutput
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -64,27 +53,33 @@ class RecvTracker extends DMAModule {
        s_wait_imm :: Nil) = Enum(Bits(), 5)
   val state = Reg(init = s_idle)
 
-  val is_put_block = io.acquire.bits.a_type === Acquire.putBlockType
-  val is_immediate = io.acquire.bits.a_type === Acquire.immediateType
-  val is_ack = io.grant.bits.g_type === Grant.putAckType
-  val is_nack = io.grant.bits.g_type === Grant.nackType
+  val acquire = io.acquire.bits.payload
+  val grant = io.grant.bits.payload
+
+  val is_put_block = acquire.a_type === Acquire.putBlockType
+  val is_immediate = acquire.a_type === Acquire.immediateType
+  val is_ack = grant.g_type === Grant.putAckType
+  val is_nack = grant.g_type === Grant.nackType
 
   val first_block = Reg(UInt(width = tlBlockAddrBits))
   val end_block = Reg(UInt(width = tlBlockAddrBits))
   val xact_id = Reg(UInt(width = dmaXactIdBits))
 
-  val right_xact_id = xact_id === io.acquire.bits.client_xact_id
+  val right_xact_id = xact_id === acquire.client_xact_id
   val right_addr =
-    first_block <= io.acquire.bits.addr_block &&
-    end_block > io.acquire.bits.addr_block
-
-  val error = Reg(Bits(width = 2))
-  io.error := error
-
-  val imm_data = Reg(UInt(width = paddrBits))
-  io.imm_data := imm_data
+    first_block <= acquire.addr_block &&
+    end_block > acquire.addr_block
 
   val last_grant = Reg(Bool())
+
+  val error = Reg(init = RxErrors.noerror)
+  io.error := error
+
+  val imm_data = Reg(init = UInt(0, paddrBits))
+  io.imm_data := imm_data
+
+  val src_addr = Reg(new RemoteAddress)
+  io.src_addr := src_addr
 
   switch (state) {
     is (s_idle) {
@@ -92,7 +87,7 @@ class RecvTracker extends DMAModule {
         val end_addr = io.cmd.bits.start + io.cmd.bits.nbytes
         first_block := io.cmd.bits.start(paddrBits - 1, tlBlockOffset)
         end_block := end_addr(paddrBits - 1, tlBlockOffset)
-        error := RxErrors.noerror
+        error := RxErrors.notFinished
         when (io.cmd.bits.immediate) {
           state := s_wait_imm
         } .otherwise {
@@ -102,7 +97,8 @@ class RecvTracker extends DMAModule {
     }
     is (s_wait_first) {
       when (io.acquire.valid && is_put_block && right_addr) {
-        xact_id := io.acquire.bits.client_xact_id
+        xact_id := acquire.client_xact_id
+        src_addr := io.acquire.bits.header.src
         state := s_wait_acquire
       }
     }
@@ -112,7 +108,7 @@ class RecvTracker extends DMAModule {
           error := RxErrors.earlyFinish
           state := s_idle
         } .otherwise {
-          last_grant := io.acquire.last
+          last_grant := io.acquire.bits.last
           state := s_wait_grant
         }
       }
@@ -121,6 +117,7 @@ class RecvTracker extends DMAModule {
       when (io.grant.valid) {
         when (is_ack) {
           when (last_grant) {
+            error := RxErrors.noerror
             state := s_idle
           } .otherwise {
             state := s_wait_acquire
@@ -133,7 +130,9 @@ class RecvTracker extends DMAModule {
     }
     is (s_wait_imm) {
       when (io.acquire.valid && is_immediate) {
-        imm_data := io.acquire.bits.full_addr()
+        imm_data := acquire.full_addr()
+        src_addr := io.acquire.bits.header.src
+        error := RxErrors.noerror
         state := s_idle
       }
     }
@@ -155,15 +154,28 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
     s_req_track :: s_resp :: Nil) = Enum(Bits(), 5)
   val state = Reg(init = s_idle)
 
-  val csrs = new RoCCCSR
-  csrs.segment_size := io.csrs(0)
-  csrs.stride_size := io.csrs(1)
-  csrs.nsegments := io.csrs(2)
-  csrs.header.dst.addr := io.csrs(3)
-  csrs.header.dst.port := io.csrs(4)
-  csrs.header.src.addr := io.csrs(5)
-  csrs.header.src.port := io.csrs(6)
-  csrs.phys := io.csrs(7) != UInt(0)
+  val csrs = Reg(new RoCCCSRFile)
+  when (io.csrs.wen) {
+    switch (io.csrs.waddr) {
+      is (UInt(0)) { csrs.segment_size := io.csrs.wdata }
+      is (UInt(1)) { csrs.stride_size := io.csrs.wdata }
+      is (UInt(2)) { csrs.nsegments := io.csrs.wdata }
+      is (UInt(3)) { csrs.header.dst.addr := io.csrs.wdata }
+      is (UInt(4)) { csrs.header.dst.port := io.csrs.wdata }
+      is (UInt(5)) { csrs.header.src.addr := io.csrs.wdata }
+      is (UInt(6)) { csrs.header.src.port := io.csrs.wdata }
+      is (UInt(7)) { csrs.phys := (io.csrs.wdata != UInt(0)) }
+    }
+  }
+
+  io.csrs.rdata(0) := csrs.segment_size
+  io.csrs.rdata(1) := csrs.stride_size
+  io.csrs.rdata(2) := csrs.nsegments
+  io.csrs.rdata(3) := csrs.header.dst.addr
+  io.csrs.rdata(4) := csrs.header.dst.port
+  io.csrs.rdata(5) := csrs.header.src.addr
+  io.csrs.rdata(6) := csrs.header.src.port
+  io.csrs.rdata(7) := csrs.phys
 
   val tx = Module(new TileLinkDMATx)
   tx.io.net <> io.net.tx
@@ -182,10 +194,9 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   rx.io.phys := csrs.phys
 
   val tracker = Module(new RecvTracker)
-  tracker.io.acquire.bits := io.net.rx.acquire.bits.payload
+  tracker.io.acquire.bits := io.net.rx.acquire.bits
   tracker.io.acquire.valid := io.net.rx.acquire.fire()
-  tracker.io.acquire.last := io.net.rx.acquire.bits.last
-  tracker.io.grant.bits := io.net.rx.grant.bits.payload
+  tracker.io.grant.bits := io.net.rx.grant.bits
   tracker.io.grant.valid := io.net.rx.grant.fire()
   tracker.io.cmd.valid := (state === s_req_track)
   tracker.io.cmd.bits.start := dst
@@ -222,6 +233,10 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
 
   val nowork = csrs.nsegments === UInt(0) || csrs.segment_size === UInt(0)
 
+  io.csrs.rdata(8) := tracker.io.src_addr.addr
+  io.csrs.rdata(9) := tracker.io.src_addr.port
+  io.csrs.rdata(10) := tracker.io.imm_data
+
   switch (state) {
     is (s_idle) {
       when (cmd.valid) {
@@ -247,8 +262,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
           state := s_req_track
         } .elsewhen (funct === DMA_POLL_RECV) {
           resp_rd := cmd.bits.inst.rd
-          resp_data := Mux(tracker.io.cmd.ready,
-            tracker.io.error, RxErrors.notFinished)
+          resp_data := tracker.io.error
           state := s_resp
         } .elsewhen (funct === DMA_SEND_IMM) {
           dst := cmd.bits.rs1
@@ -257,10 +271,6 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
           resp_rd := cmd.bits.inst.rd
           resp_wanted := cmd.bits.inst.xd
           state := s_req_tx
-        } .elsewhen (funct === DMA_READ_IMM) {
-          resp_rd := cmd.bits.inst.rd
-          resp_data := tracker.io.imm_data
-          state := s_resp
         }
       }
     }
