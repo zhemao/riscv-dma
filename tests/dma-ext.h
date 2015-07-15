@@ -129,6 +129,15 @@ static inline int dma_poll_recv(void)
 	return err;
 }
 
+static inline int dma_send_immediate(struct dma_addr *addr, unsigned long imm)
+{
+	int err;
+	setup_dma(addr, 0, 0, 0);
+	asm volatile ("custom0 %[err], %[imm], 0, 6" :
+			[err] "=r" (err) : [imm] "r" (imm));
+	return err;
+}
+
 static inline int dma_wait_recv(void)
 {
 	int err;
@@ -140,6 +149,20 @@ static inline int dma_wait_recv(void)
 	asm volatile ("fence");
 
 	return err;
+}
+
+static inline void dma_track_immediate(void)
+{
+	asm volatile ("custom0 0, zero, 1, 4");
+}
+
+static inline unsigned long dma_read_immediate(void)
+{
+	unsigned long res;
+
+	asm volatile ("custom0 %[res], 0, 0, 7" : [res] "=r" (res));
+
+	return res;
 }
 
 #endif

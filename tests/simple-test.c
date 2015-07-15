@@ -18,6 +18,7 @@ int src_array[ARR_SIZE] = {
 int dst_array[ARR_SIZE];
 
 #define PORT 16
+#define IMMEDIATE 200
 
 int main(void)
 {
@@ -33,6 +34,18 @@ int main(void)
 	addr.addr = 0;
 	addr.port = PORT;
 	dma_bind_addr(&addr);
+
+	dma_track_immediate();
+
+	dma_send_immediate(&addr, IMMEDIATE);
+
+	err = dma_wait_recv();
+	if (err)
+		return err;
+
+	if (dma_read_immediate() != IMMEDIATE)
+		return 1;
+
 	// allow a write up to the end of the 
 	dma_track_recv(dst_array, ARR_SIZE * sizeof(int));
 
