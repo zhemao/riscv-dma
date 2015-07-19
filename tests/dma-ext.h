@@ -24,8 +24,8 @@ static inline void setup_dma(struct dma_addr *remote_addr,
 	write_csr(0x800, segsize);
 	write_csr(0x801, stride);
 	write_csr(0x802, nsegments);
-	write_csr(0x803, remote_addr->addr);
-	write_csr(0x804, remote_addr->port);
+	write_csr(0x804, remote_addr->addr);
+	write_csr(0x805, remote_addr->port);
 }
 
 static inline int dma_scatter_put(struct dma_addr *remote_addr, void *dst, void *src,
@@ -110,8 +110,8 @@ dma_contig_get(struct dma_addr *remote_addr, void *dst, void *src, unsigned long
 
 static inline void dma_bind_addr(struct dma_addr *addr)
 {
-	write_csr(0x805, addr->addr);
-	write_csr(0x806, addr->port);
+	write_csr(0x806, addr->addr);
+	write_csr(0x807, addr->port);
 }
 
 static inline void dma_track_recv(void *dst, unsigned long nbytes)
@@ -151,8 +151,8 @@ static inline int dma_wait_recv(void)
 
 static inline void dma_read_src_addr(struct dma_addr *addr)
 {
-	addr->addr = read_csr(0x808);
-	addr->port = read_csr(0x809);
+	addr->addr = read_csr(0x80A);
+	addr->port = read_csr(0x80B);
 }
 
 static inline void dma_track_immediate(void)
@@ -162,7 +162,7 @@ static inline void dma_track_immediate(void)
 
 static inline unsigned long dma_read_immediate(void)
 {
-	return read_csr(0x80A);
+	return read_csr(0x80C);
 }
 
 #endif

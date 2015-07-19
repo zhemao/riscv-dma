@@ -429,7 +429,7 @@ class TileLinkDMARx extends DMAModule {
     val dmem = new ClientUncachedTileLinkIO
     val dptw = new TLBPTWIO
     val phys = Bool(INPUT)
-    val idle = Bool(OUTPUT)
+    val busy = Bool(OUTPUT)
     val local_addr = new RemoteAddress().asInput
   }
 
@@ -452,7 +452,7 @@ class TileLinkDMARx extends DMAModule {
        s_ptw_req :: s_ptw_resp :: s_discard :: Nil) = Enum(Bits(), 11)
   val state = Reg(init = s_idle)
 
-  io.idle := (state === s_idle)
+  io.busy := (state != s_idle)
 
   val remote_addr = Reg(new RemoteAddress)
   val net_type = Mux(nack, Grant.nackType,

@@ -14,7 +14,19 @@ object CustomInstructions {
   val DMA_SEND_IMM    = UInt(6)
 }
 
+object IRQCauses {
+  val RX_FINISHED = UInt(0)
+  val ADDR_SWITCH = UInt(1)
+
+  val ncauses = 2
+}
+
 import CustomInstructions._
+
+class IRQStatus extends Bundle {
+  val addr_switch = Bool()
+  val rx_finished = Bool()
+}
 
 class RoCCCSRFile extends DMABundle {
   val segment_size = UInt(width = paddrBits)
@@ -22,6 +34,9 @@ class RoCCCSRFile extends DMABundle {
   val nsegments = UInt(width = paddrBits)
   val header = new RemoteHeader
   val phys = Bool()
+  val ip = new IRQStatus
+  val ie = new IRQStatus
+  val cause = UInt(width = log2Up(IRQCauses.ncauses))
 }
 
 class TrackerCmd extends Bundle with CoreParameters {
@@ -45,6 +60,8 @@ class RecvTracker extends DMAModule {
     val error = Bits(OUTPUT, 2)
     val imm_data = UInt(OUTPUT, paddrBits)
     val src_addr = new RemoteAddress().asOutput
+    val finished = Bool(OUTPUT)
+    val inprogress = Bool(OUTPUT)
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -139,6 +156,11 @@ class RecvTracker extends DMAModule {
   }
 
   io.cmd.ready := (state === s_idle)
+
+  val last_ready = Reg(next = io.cmd.ready)
+  io.finished := io.cmd.ready && !last_ready
+
+  io.inprogress := (state != s_idle) && (state != s_wait_first)
 }
 
 class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
@@ -154,28 +176,48 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
     s_req_track :: s_resp :: Nil) = Enum(Bits(), 5)
   val state = Reg(init = s_idle)
 
-  val csrs = Reg(new RoCCCSRFile)
+  val initCsrs = new RoCCCSRFile
+  initCsrs.segment_size := UInt(0)
+  initCsrs.stride_size := UInt(0)
+  initCsrs.nsegments := UInt(0)
+  initCsrs.phys := Bool(false)
+  initCsrs.header.dst.addr := UInt(0)
+  initCsrs.header.dst.port := UInt(0)
+  initCsrs.header.src.addr := UInt(0)
+  initCsrs.header.src.port := UInt(0)
+  initCsrs.ip.addr_switch := Bool(false)
+  initCsrs.ip.rx_finished := Bool(false)
+  initCsrs.ie.addr_switch := Bool(false)
+  initCsrs.ie.rx_finished := Bool(false)
+  initCsrs.cause := UInt(0)
+  val csrs = Reg(init = initCsrs)
+
   when (io.csrs.wen) {
     switch (io.csrs.waddr) {
-      is (UInt(0)) { csrs.segment_size := io.csrs.wdata }
-      is (UInt(1)) { csrs.stride_size := io.csrs.wdata }
-      is (UInt(2)) { csrs.nsegments := io.csrs.wdata }
-      is (UInt(3)) { csrs.header.dst.addr := io.csrs.wdata }
-      is (UInt(4)) { csrs.header.dst.port := io.csrs.wdata }
-      is (UInt(5)) { csrs.header.src.addr := io.csrs.wdata }
-      is (UInt(6)) { csrs.header.src.port := io.csrs.wdata }
-      is (UInt(7)) { csrs.phys := (io.csrs.wdata != UInt(0)) }
+      is (UInt(0))  { csrs.segment_size := io.csrs.wdata }
+      is (UInt(1))  { csrs.stride_size := io.csrs.wdata }
+      is (UInt(2))  { csrs.nsegments := io.csrs.wdata }
+      is (UInt(3))  { csrs.phys := (io.csrs.wdata != UInt(0)) }
+      is (UInt(4))  { csrs.header.dst.addr := io.csrs.wdata }
+      is (UInt(5))  { csrs.header.dst.port := io.csrs.wdata }
+      is (UInt(6))  { csrs.header.src.addr := io.csrs.wdata }
+      is (UInt(7))  { csrs.header.src.port := io.csrs.wdata }
+      is (UInt(13)) { csrs.ip := new IRQStatus().fromBits(io.csrs.wdata) }
+      is (UInt(14)) { csrs.ie := new IRQStatus().fromBits(io.csrs.wdata) }
     }
   }
 
   io.csrs.rdata(0) := csrs.segment_size
   io.csrs.rdata(1) := csrs.stride_size
   io.csrs.rdata(2) := csrs.nsegments
-  io.csrs.rdata(3) := csrs.header.dst.addr
-  io.csrs.rdata(4) := csrs.header.dst.port
-  io.csrs.rdata(5) := csrs.header.src.addr
-  io.csrs.rdata(6) := csrs.header.src.port
-  io.csrs.rdata(7) := csrs.phys
+  io.csrs.rdata(3) := csrs.phys
+  io.csrs.rdata(4) := csrs.header.dst.addr
+  io.csrs.rdata(5) := csrs.header.dst.port
+  io.csrs.rdata(6) := csrs.header.src.addr
+  io.csrs.rdata(7) := csrs.header.src.port
+  io.csrs.rdata(13) := csrs.ip.toBits
+  io.csrs.rdata(14) := csrs.ie.toBits
+  io.csrs.rdata(15) := csrs.cause
 
   val tx = Module(new TileLinkDMATx)
   tx.io.net <> io.net.tx
@@ -229,13 +271,17 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   val small_step = csrs.segment_size
   val large_step = csrs.segment_size + csrs.stride_size
 
-  io.addr := csrs.header.src
+  io.net.ctrl.cur_addr := csrs.header.src
+  io.net.ctrl.switch_addr.ready := !tracker.io.inprogress &&
+                                   !rx.io.busy && tx.io.cmd.ready
 
   val nowork = csrs.nsegments === UInt(0) || csrs.segment_size === UInt(0)
 
-  io.csrs.rdata(8) := tracker.io.src_addr.addr
-  io.csrs.rdata(9) := tracker.io.src_addr.port
-  io.csrs.rdata(10) := tracker.io.imm_data
+  io.csrs.rdata(8) := io.net.ctrl.switch_addr.bits.addr
+  io.csrs.rdata(9) := io.net.ctrl.switch_addr.bits.port
+  io.csrs.rdata(10) := tracker.io.src_addr.addr
+  io.csrs.rdata(11) := tracker.io.src_addr.port
+  io.csrs.rdata(12) := tracker.io.imm_data
 
   switch (state) {
     is (s_idle) {
@@ -312,8 +358,19 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
     }
   }
 
+  when (tracker.io.finished) {
+    csrs.ip.rx_finished := Bool(true)
+    csrs.cause := IRQCauses.RX_FINISHED
+  }
+
+  when (io.net.ctrl.switch_addr.fire()) {
+    csrs.header.src := io.net.ctrl.switch_addr.bits
+    csrs.ip.addr_switch := Bool(true)
+    csrs.cause := IRQCauses.ADDR_SWITCH
+  }
+
   io.busy := (state != s_idle) || cmd.valid
-  io.interrupt := Bool(false)
+  io.interrupt := (csrs.ip.toBits & csrs.ie.toBits).orR
 
   io.mem.req.valid := Bool(false)
   io.imem.acquire.valid := Bool(false)
