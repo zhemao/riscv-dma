@@ -3,9 +3,10 @@
 
 #include <riscv-pk/encoding.h>
 
-#define DMA_RX_NOT_FINISHED 1
-#define DMA_RX_EARLY_FINISH 2
-#define DMA_RX_NACK 3
+#define DMA_RX_NOT_STARTED 2
+#define DMA_RX_NOT_FINISHED 3
+#define DMA_RX_EARLY_FINISH 4
+#define DMA_RX_NACK 5
 
 #define DMA_TX_PAGEFAULT 1
 #define DMA_TX_GETNACK 2
@@ -108,7 +109,7 @@ dma_contig_get(struct dma_addr *remote_addr, void *dst, void *src, unsigned long
 	return dma_gather_get(remote_addr, dst, src, len, 0, 1);
 }
 
-static inline void dma_bind_addr(struct dma_addr *addr)
+static inline void dma_raw_bind_addr(struct dma_addr *addr)
 {
 	write_csr(0x806, addr->addr);
 	write_csr(0x807, addr->port);
@@ -136,9 +137,13 @@ static inline int dma_send_immediate(struct dma_addr *addr, unsigned long imm)
 	return err;
 }
 
-static inline int dma_wait_recv(void)
+static inline int dma_raw_wait_recv(void)
 {
 	int err;
+
+	do {
+		err = dma_poll_recv();
+	} while (err == DMA_RX_NOT_STARTED);
 
 	do {
 		err = dma_poll_recv();

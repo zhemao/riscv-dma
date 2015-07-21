@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "dma-ext.h"
+#include "dma-syscalls.h"
 
 #define SERVER_PORT 1000
 #define CLIENT_PORT 1001
@@ -46,6 +46,8 @@ int main(void)
 		if (dst[i] != i * 3)
 			printf("[%d] expected %d, got %d\n", i, i * 3, dst[i]);
 	}
+
+	dma_unbind_addr();
 
 	return 0;
 }

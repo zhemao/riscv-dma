@@ -33,17 +33,17 @@ int main(void)
 
 	addr.addr = 0;
 	addr.port = PORT;
-	dma_bind_addr(&addr);
+	dma_raw_bind_addr(&addr);
 
 	dma_track_immediate();
 	// test that the sequencing is correct
 	err = dma_poll_recv();
-	if (err != 1)
+	if (err != DMA_RX_NOT_STARTED)
 		return 5;
 
 	dma_send_immediate(&addr, IMMEDIATE);
 
-	err = dma_wait_recv();
+	err = dma_raw_wait_recv();
 	if (err)
 		return err;
 
@@ -61,7 +61,7 @@ int main(void)
 	if (err)
 		return err;
 
-	err = dma_wait_recv();
+	err = dma_raw_wait_recv();
 	if (err)
 		return err;
 

@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "barrier.h"
-#include "dma-ext.h"
+#include "dma-syscalls.h"
 
 #define N 128
 #define M 32
@@ -95,6 +95,8 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	if (check_matrix(mat_a, mat_b))
 		error = 1;
 
+	dma_unbind_addr();
+
 	return error;
 }
 
@@ -145,6 +147,8 @@ int slave_process(struct barrier *barrier, int *mat_a, int *mat_b)
 			error = 1;
 		}
 	}
+
+	dma_unbind_addr();
 
 	return error;
 }

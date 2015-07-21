@@ -7,7 +7,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "dma-ext.h"
+#include "dma-syscalls.h"
 
 #define NITEMS 5000
 
@@ -42,6 +42,8 @@ void parent_thread(struct unshared_state *unshared)
 	}
 
 	printf("Data sent\n");
+
+	dma_unbind_addr();
 }
 
 void child_thread(struct unshared_state *unshared)
@@ -74,6 +76,8 @@ void child_thread(struct unshared_state *unshared)
 
 	if (!error)
 		printf("Child received all data with no errors\n");
+
+	dma_unbind_addr();
 }
 
 int main(void)

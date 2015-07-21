@@ -13,7 +13,9 @@ ALL_TESTS=$(BAREMETAL_TESTS) $(LINUX_TESTS) $(PK_TESTS)
 ELF=$(addsuffix .elf, $(BAREMETAL_TESTS))
 HEX=$(addsuffix .hex, $(BAREMETAL_TESTS))
 DUMP=$(addsuffix .dump, $(BAREMETAL_TESTS))
-MAIN_OBJS=$(addsuffix .o, $(ALL_TESTS))
+
+NOKERN_OBJS=$(addsuffix .o, $(BAREMETAL_TESTS) $(PK_TESTS))
+KERNEL_OBJS=$(addsuffix .o, $(LINUX_TESTS))
 
 default: $(LINUX_TESTS) $(PK_TESTS) $(ELF) $(HEX) $(DUMP)
 
@@ -32,7 +34,10 @@ $(HEX): %.hex: %.elf
 $(ELF): %.elf: %.o init.o dma-ext.h
 	$(CC) $(BAREMETAL_LDFLAGS) init.o $< -o $@
 
-$(MAIN_OBJS): %.o: %.c dma-ext.h
+$(NOKERN_OBJS): %.o: %.c dma-ext.h
+	$(CC) $(CFLAGS) -c $<
+
+$(KERNEL_OBJS): %.o: %.c dma-syscalls.h
 	$(CC) $(CFLAGS) -c $<
 
 %.o: %.c %.h

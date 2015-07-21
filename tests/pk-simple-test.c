@@ -28,11 +28,11 @@ int main(void)
 
 	addr.addr = 0;
 	addr.port = PORT;
-	dma_bind_addr(&addr);
+	dma_raw_bind_addr(&addr);
 
 	dma_track_immediate();
 	dma_send_immediate(&addr, IMMEDIATE);
-	error = dma_wait_recv();
+	error = dma_raw_wait_recv();
 	if (error)
 		return -error;
 
@@ -50,7 +50,7 @@ int main(void)
 		exit(EXIT_FAILURE);
 	}
 
-	ret = dma_wait_recv();
+	ret = dma_raw_wait_recv();
 	if (ret) {
 		printf("Error receiving data: %d\n", ret);
 		exit(EXIT_FAILURE);
