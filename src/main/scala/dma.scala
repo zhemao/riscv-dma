@@ -455,6 +455,8 @@ class TileLinkDMARx extends DMAModule {
   io.busy := (state != s_idle)
 
   val remote_addr = Reg(new RemoteAddress)
+  val local_addr = Reg(new RemoteAddress)
+
   val net_type = Mux(nack, Grant.nackType,
                  Mux(direction, Grant.putAckType, Grant.getDataBlockType))
 
@@ -467,7 +469,7 @@ class TileLinkDMARx extends DMAModule {
     manager_xact_id = UInt(0),
     addr_beat = beat_idx,
     data = buffer(beat_idx))
-  io.net.grant.bits.header.src := io.local_addr
+  io.net.grant.bits.header.src := local_addr
   io.net.grant.bits.header.dst := remote_addr
 
   val dmem_type = Mux(state === s_get_acquire,
@@ -517,6 +519,9 @@ class TileLinkDMARx extends DMAModule {
         remote_addr := io.net.acquire.bits.header.src
         net_xact_id := net_acquire.client_xact_id
       }
+      // we don't want this to change in the middle of a transaction
+      // so only update when in the idle state
+      local_addr := io.local_addr
     }
     is (s_prepare_recv) {
       beat_idx := UInt(0)

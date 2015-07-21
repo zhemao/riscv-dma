@@ -23,19 +23,12 @@ object IRQCauses {
 
 import CustomInstructions._
 
-class IRQStatus extends Bundle {
-  val addr_switch = Bool()
-  val rx_finished = Bool()
-}
-
 class RoCCCSRFile extends DMABundle {
   val segment_size = UInt(width = paddrBits)
   val stride_size = UInt(width = paddrBits)
   val nsegments = UInt(width = paddrBits)
   val header = new RemoteHeader
   val phys = Bool()
-  val ip = new IRQStatus
-  val ie = new IRQStatus
   val cause = UInt(width = log2Up(IRQCauses.ncauses))
 }
 
@@ -46,10 +39,11 @@ class TrackerCmd extends Bundle with CoreParameters {
 }
 
 object RxErrors {
-  val noerror = Bits("b00")
-  val notFinished = Bits("b01")
-  val earlyFinish = Bits("b10")
-  val rxNack = Bits("b11")
+  val noerror = Bits("b000")
+  val notStarted = Bits("b010")
+  val notFinished = Bits("b011")
+  val earlyFinish = Bits("b100")
+  val rxNack = Bits("b101")
 }
 
 class RecvTracker extends DMAModule {
@@ -57,7 +51,7 @@ class RecvTracker extends DMAModule {
     val cmd = Decoupled(new TrackerCmd).flip
     val acquire = Valid(new RemoteNetworkIO(new Acquire)).flip
     val grant = Valid(new RemoteNetworkIO(new Grant)).flip
-    val error = Bits(OUTPUT, 2)
+    val error = RxErrors.noerror.clone.asOutput
     val imm_data = UInt(OUTPUT, paddrBits)
     val src_addr = new RemoteAddress().asOutput
     val finished = Bool(OUTPUT)
@@ -104,7 +98,7 @@ class RecvTracker extends DMAModule {
         val end_addr = io.cmd.bits.start + io.cmd.bits.nbytes
         first_block := io.cmd.bits.start(paddrBits - 1, tlBlockOffset)
         end_block := end_addr(paddrBits - 1, tlBlockOffset)
-        error := RxErrors.notFinished
+        error := RxErrors.notStarted
         when (io.cmd.bits.immediate) {
           state := s_wait_imm
         } .otherwise {
@@ -113,14 +107,15 @@ class RecvTracker extends DMAModule {
       }
     }
     is (s_wait_first) {
-      when (io.acquire.valid && is_put_block && right_addr) {
+      when (io.acquire.fire() && is_put_block && right_addr) {
         xact_id := acquire.client_xact_id
         src_addr := io.acquire.bits.header.src
-        state := s_wait_acquire
+        error := RxErrors.notFinished
+        state := s_wait_grant
       }
     }
     is (s_wait_acquire) {
-      when (io.acquire.valid && is_put_block) {
+      when (io.acquire.fire() && is_put_block) {
         when (!right_xact_id) {
           error := RxErrors.earlyFinish
           state := s_idle
@@ -131,7 +126,7 @@ class RecvTracker extends DMAModule {
       }
     }
     is (s_wait_grant) {
-      when (io.grant.valid) {
+      when (io.grant.fire()) {
         when (is_ack) {
           when (last_grant) {
             error := RxErrors.noerror
@@ -146,7 +141,7 @@ class RecvTracker extends DMAModule {
       }
     }
     is (s_wait_imm) {
-      when (io.acquire.valid && is_immediate) {
+      when (io.acquire.fire() && is_immediate) {
         imm_data := acquire.full_addr()
         src_addr := io.acquire.bits.header.src
         error := RxErrors.noerror
@@ -185,10 +180,6 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   initCsrs.header.dst.port := UInt(0)
   initCsrs.header.src.addr := UInt(0)
   initCsrs.header.src.port := UInt(0)
-  initCsrs.ip.addr_switch := Bool(false)
-  initCsrs.ip.rx_finished := Bool(false)
-  initCsrs.ie.addr_switch := Bool(false)
-  initCsrs.ie.rx_finished := Bool(false)
   initCsrs.cause := UInt(0)
   val csrs = Reg(init = initCsrs)
 
@@ -202,8 +193,6 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
       is (UInt(5))  { csrs.header.dst.port := io.csrs.wdata }
       is (UInt(6))  { csrs.header.src.addr := io.csrs.wdata }
       is (UInt(7))  { csrs.header.src.port := io.csrs.wdata }
-      is (UInt(13)) { csrs.ip := new IRQStatus().fromBits(io.csrs.wdata) }
-      is (UInt(14)) { csrs.ie := new IRQStatus().fromBits(io.csrs.wdata) }
     }
   }
 
@@ -215,9 +204,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   io.csrs.rdata(5) := csrs.header.dst.port
   io.csrs.rdata(6) := csrs.header.src.addr
   io.csrs.rdata(7) := csrs.header.src.port
-  io.csrs.rdata(13) := csrs.ip.toBits
-  io.csrs.rdata(14) := csrs.ie.toBits
-  io.csrs.rdata(15) := csrs.cause
+  io.csrs.rdata(13) := csrs.cause
 
   val tx = Module(new TileLinkDMATx)
   tx.io.net <> io.net.tx
@@ -358,19 +345,19 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
     }
   }
 
-  when (tracker.io.finished) {
-    csrs.ip.rx_finished := Bool(true)
+  val tracker_irq = tracker.io.finished
+  val switch_irq = io.net.ctrl.switch_addr.fire()
+
+  when (tracker_irq) {
     csrs.cause := IRQCauses.RX_FINISHED
   }
 
-  when (io.net.ctrl.switch_addr.fire()) {
-    csrs.header.src := io.net.ctrl.switch_addr.bits
-    csrs.ip.addr_switch := Bool(true)
+  when (switch_irq) {
     csrs.cause := IRQCauses.ADDR_SWITCH
   }
 
   io.busy := (state != s_idle) || cmd.valid
-  io.interrupt := (csrs.ip.toBits & csrs.ie.toBits).orR
+  io.interrupt := Reg(next = tracker_irq || switch_irq)
 
   io.mem.req.valid := Bool(false)
   io.imem.acquire.valid := Bool(false)
