@@ -29,6 +29,7 @@ object TxErrors {
   val getNack   = Bits("b010")
   val putNack   = Bits("b011")
   val immNack   = Bits("b100")
+  val noRoute   = Bits("b101")
 }
 
 class TileLinkDMACommand extends DMABundle {
@@ -48,7 +49,8 @@ class TileLinkDMATx extends DMAModule {
     val dptw = new TLBPTWIO
     val net = new RemoteTileLinkIO
     val phys = Bool(INPUT)
-    val error = Bits(OUTPUT, 3)
+    val error = TxErrors.noerror.clone.asOutput
+    val route_error = Bool(INPUT)
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -138,7 +140,7 @@ class TileLinkDMATx extends DMAModule {
   }.toBits
   val full_wmask = FillInterleaved(8, wmask)
 
-  val error = Reg(init = Bits(width = 2))
+  val error = Reg(init = TxErrors.noerror)
 
   io.cmd.ready := (state === s_idle)
   io.error := error
@@ -382,7 +384,10 @@ class TileLinkDMATx extends DMAModule {
       }
     }
     is (s_net_put_acquire) {
-      when (io.net.acquire.ready) {
+      when (io.route_error) {
+        error := TxErrors.noRoute
+        state := s_idle
+      } .elsewhen (io.net.acquire.ready) {
         when (beat_idx === UInt(tlDataBeats - 1)) {
           state := s_net_put_grant
         }
@@ -408,7 +413,10 @@ class TileLinkDMATx extends DMAModule {
       }
     }
     is (s_net_imm_acquire) {
-      when (io.net.acquire.ready) {
+      when (io.route_error) {
+        error := TxErrors.noRoute
+        state := s_idle
+      } .elsewhen (io.net.acquire.ready) {
         state := s_net_imm_grant
       }
     }
@@ -431,6 +439,7 @@ class TileLinkDMARx extends DMAModule {
     val phys = Bool(INPUT)
     val busy = Bool(OUTPUT)
     val local_addr = new RemoteAddress().asInput
+    val route_error = Bool(INPUT)
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -585,7 +594,9 @@ class TileLinkDMARx extends DMAModule {
       }
     }
     is (s_ack) {
-      when (io.net.grant.ready) {
+      when (io.route_error) {
+        state := s_idle
+      } .elsewhen (io.net.grant.ready) {
         val single_beat = nack || immediate || direction
         when (single_beat || beat_idx === UInt(tlDataBeats - 1)) {
           state := s_idle

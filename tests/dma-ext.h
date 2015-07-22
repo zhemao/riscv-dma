@@ -3,14 +3,17 @@
 
 #include <riscv-pk/encoding.h>
 
-#define DMA_RX_NOT_STARTED 2
-#define DMA_RX_NOT_FINISHED 3
-#define DMA_RX_EARLY_FINISH 4
-#define DMA_RX_NACK 5
+#define DMA_RX_NOT_STARTED 1
+#define DMA_RX_NOT_FINISHED 2
+#define DMA_RX_EARLY_FINISH 3
+#define DMA_RX_NACK 4
+#define DMA_RX_NO_ROUTE 5
 
 #define DMA_TX_PAGEFAULT 1
 #define DMA_TX_GETNACK 2
 #define DMA_TX_PUTNACK 3
+#define DMA_TX_IMMNACK 4
+#define DMA_TX_NOROUTE 5
 
 struct dma_addr {
 	unsigned long addr;

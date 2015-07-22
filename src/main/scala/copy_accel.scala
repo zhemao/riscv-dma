@@ -40,10 +40,11 @@ class TrackerCmd extends Bundle with CoreParameters {
 
 object RxErrors {
   val noerror = Bits("b000")
-  val notStarted = Bits("b010")
-  val notFinished = Bits("b011")
-  val earlyFinish = Bits("b100")
-  val rxNack = Bits("b101")
+  val notStarted = Bits("b001")
+  val notFinished = Bits("b010")
+  val earlyFinish = Bits("b011")
+  val rxNack = Bits("b100")
+  val noRoute = Bits("b101")
 }
 
 class RecvTracker extends DMAModule {
@@ -52,6 +53,7 @@ class RecvTracker extends DMAModule {
     val acquire = Valid(new RemoteNetworkIO(new Acquire)).flip
     val grant = Valid(new RemoteNetworkIO(new Grant)).flip
     val error = RxErrors.noerror.clone.asOutput
+    val route_error = Bool(INPUT)
     val imm_data = UInt(OUTPUT, paddrBits)
     val src_addr = new RemoteAddress().asOutput
     val finished = Bool(OUTPUT)
@@ -126,7 +128,10 @@ class RecvTracker extends DMAModule {
       }
     }
     is (s_wait_grant) {
-      when (io.grant.fire()) {
+      when (io.route_error) {
+        error := RxErrors.noRoute
+        state := s_idle
+      } .elsewhen (io.grant.fire()) {
         when (is_ack) {
           when (last_grant) {
             error := RxErrors.noerror
@@ -208,6 +213,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
 
   val tx = Module(new TileLinkDMATx)
   tx.io.net <> io.net.tx
+  tx.io.route_error := io.net.ctrl.route_error(0)
   tx.io.cmd.valid := (state === s_req_tx)
   tx.io.cmd.bits.src_start := src
   tx.io.cmd.bits.dst_start := dst
@@ -220,6 +226,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
 
   val rx = Module(new TileLinkDMARx)
   rx.io.net <> io.net.rx
+  rx.io.route_error := io.net.ctrl.route_error(1)
   rx.io.phys := csrs.phys
 
   val tracker = Module(new RecvTracker)
@@ -227,6 +234,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   tracker.io.acquire.valid := io.net.rx.acquire.fire()
   tracker.io.grant.bits := io.net.rx.grant.bits
   tracker.io.grant.valid := io.net.rx.grant.fire()
+  tracker.io.route_error := io.net.ctrl.route_error(1)
   tracker.io.cmd.valid := (state === s_req_track)
   tracker.io.cmd.bits.start := dst
   tracker.io.cmd.bits.nbytes := csrs.segment_size
