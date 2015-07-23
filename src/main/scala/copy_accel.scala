@@ -5,10 +5,10 @@ import rocket.{RoCC, RoCCResponse, CoreParameters}
 import uncore._
 
 object CustomInstructions {
-  val DMA_SCATTER_L2R = UInt(0)
-  val DMA_GATHER_L2R  = UInt(1)
-  val DMA_SCATTER_R2L = UInt(2)
-  val DMA_GATHER_R2L  = UInt(3)
+  val DMA_SCATTER_PUT = UInt(0)
+  val DMA_GATHER_PUT  = UInt(1)
+  val DMA_SCATTER_GET = UInt(2)
+  val DMA_GATHER_GET  = UInt(3)
   val DMA_TRACK_RECV  = UInt(4)
   val DMA_POLL_RECV   = UInt(5)
   val DMA_SEND_IMM    = UInt(6)
