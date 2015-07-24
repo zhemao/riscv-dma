@@ -41,7 +41,7 @@ int main(void)
 		return imm_data;
 
 	// set up to track a receive
-	dma_track_recv(dst, NITEMS);
+	dma_track_put(dst, NITEMS);
 
 	// do a put to our own CPU
 	ret = dma_contig_put(&addr, dst, src, NITEMS);

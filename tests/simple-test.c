@@ -55,7 +55,7 @@ int main(void)
 		return 0x30 | err;
 
 	// allow a write up to the end of the 
-	dma_track_recv(dst_array, ARR_SIZE * sizeof(int));
+	dma_track_put(dst_array, ARR_SIZE * sizeof(int));
 
 	err = dma_gather_put(&addr, dst, src, COPY_SIZE * sizeof(int), 0, 1);
 	if (err)

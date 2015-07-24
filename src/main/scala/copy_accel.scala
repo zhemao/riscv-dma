@@ -7,7 +7,7 @@ import uncore._
 object CustomInstructions {
   val DMA_PUT         = UInt(0)
   val DMA_GET         = UInt(1)
-  val DMA_TRACK_RECV  = UInt(2)
+  val DMA_TRACK_PUT  = UInt(2)
   val DMA_POLL_RECV   = UInt(3)
   val DMA_SEND_IMM    = UInt(4)
 }
@@ -314,7 +314,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
           } .elsewhen (cmd.bits.inst.xd) {
             state := s_resp
           }
-        } .elsewhen (funct === DMA_TRACK_RECV) {
+        } .elsewhen (funct === DMA_TRACK_PUT) {
           dst := cmd.bits.rs1
           src := cmd.bits.rs2
           immediate := cmd.bits.inst.rd(0)

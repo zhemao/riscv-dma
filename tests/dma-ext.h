@@ -122,7 +122,7 @@ static inline void dma_raw_bind_addr(struct dma_addr *addr)
 	write_csr(0x805, addr->port);
 }
 
-static inline void dma_track_recv(void *dst, unsigned long nbytes)
+static inline void dma_track_put(void *dst, unsigned long nbytes)
 {
 	asm volatile ("custom0 0, %[dst], %[nbytes], 2" : :
 			[dst] "r" (dst), [nbytes] "r" (nbytes));

@@ -55,7 +55,7 @@ void child_thread(struct unshared_state *unshared)
 	local_addr.port = CHILD_PORT;
 	dma_bind_addr(&local_addr);
 
-	dma_track_recv(unshared->dst, NITEMS);
+	dma_track_put(unshared->dst, NITEMS);
 
 	printf("Waiting for data\n");
 
