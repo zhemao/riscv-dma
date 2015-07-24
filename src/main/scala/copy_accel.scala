@@ -258,7 +258,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   tracker.io.route_error := io.net.ctrl.route_error(1)
   tracker.io.cmd.valid := (state === s_req_track)
   tracker.io.cmd.bits.start := dst
-  tracker.io.cmd.bits.nbytes := csrs.segment_size
+  tracker.io.cmd.bits.nbytes := src
   tracker.io.cmd.bits.immediate := immediate
 
   val dmemArb = Module(new ClientUncachedTileLinkIOArbiter(2))
@@ -301,8 +301,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
       when (cmd.valid) {
         val funct = cmd.bits.inst.funct
         when (funct(6, 1) === UInt(0)) {
-          src := cmd.bits.rs1
-          dst := cmd.bits.rs2
+          dst := cmd.bits.rs1
+          src := cmd.bits.rs2
           segments_left := csrs.nsegments
           direction := !funct(0)
           immediate := Bool(false)
@@ -316,7 +316,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
           }
         } .elsewhen (funct === DMA_TRACK_RECV) {
           dst := cmd.bits.rs1
-          immediate := cmd.bits.inst.rs2(0)
+          src := cmd.bits.rs2
+          immediate := cmd.bits.inst.rd(0)
           state := s_req_track
         } .elsewhen (funct === DMA_POLL_RECV) {
           resp_rd := cmd.bits.inst.rd
