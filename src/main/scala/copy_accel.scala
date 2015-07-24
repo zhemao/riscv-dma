@@ -183,6 +183,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   val direction = Reg(Bool())
   val immediate = Reg(Bool())
   val xact_id = Reg(init = UInt(0, dmaXactIdBits))
+  val src_step = Reg(UInt(width = paddrBits))
+  val dst_step = Reg(UInt(width = paddrBits))
 
   val (s_idle :: s_req_tx :: s_wait_tx ::
     s_req_track :: s_resp :: Nil) = Enum(Bits(), 5)
@@ -297,6 +299,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
         when (funct(6, 1) === UInt(0)) {
           dst := cmd.bits.rs1
           src := cmd.bits.rs2
+          dst_step := csrs.segment_size + csrs.dst_stride
+          src_step := csrs.segment_size + csrs.src_stride
           segments_left := csrs.nsegments
           direction := !funct(0)
           immediate := Bool(false)
@@ -329,8 +333,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
     }
     is (s_req_tx) {
       when (tx.io.cmd.ready) {
-        src := src + csrs.src_stride
-        dst := dst + csrs.dst_stride
+        src := src + src_step
+        dst := dst + dst_step
         when (immediate || segments_left === UInt(1)) {
           state := s_wait_tx
         }
