@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "dma-ext.h"
 
 #define PORT 16
@@ -20,8 +22,10 @@ static int check_matrix(void)
 		for (j = 0; j < M; j++) {
 			a = mat_a[(ROW + i) * N + COL + j];
 			b = mat_b[i * M + j];
-			if (a != b && error_count < MAX_ERRORS)
+			if (a != b && error_count < MAX_ERRORS) {
+				printf("expected %d, got %d\n", a, b);
 				error_count++;
+			}
 		}
 	}
 	return error_count > 0;
@@ -48,22 +52,30 @@ int main(void)
 
 	ret = dma_gather_put(&addr, mat_b, start,
 			seg_size, stride_size, nsegs);
-	if (ret)
-		return 0x10 | ret;
+	if (ret) {
+		fprintf(stderr, "dma_gather_put failed with code %d\n", ret);
+		return -1;
+	}
 
-	if (check_matrix())
-		return 0x20;
+	if (check_matrix()) {
+		fprintf(stderr, "check failed after put to mat_b\n");
+		return -1;
+	}
 
 	for (i = 0; i < M * M; i++)
 		mat_b[i] *= 2;
 
 	ret = dma_scatter_get(&addr, start, mat_b,
 			seg_size, stride_size, nsegs);
-	if (ret)
-		return 0x30 | ret;
+	if (ret) {
+		fprintf(stderr, "dma_scatter_get failed with code %d\n", ret);
+		return -1;
+	}
 
-	if (check_matrix())
-		return 0x40;
+	if (check_matrix()) {
+		fprintf(stderr, "check failed after get to mat_a\n");
+		return -1;
+	}
 
 	return 0;
 }

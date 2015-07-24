@@ -5,9 +5,9 @@ PK_LDFLAGS=-static
 LINUX_LDFLAGS=-pthread -lrt
 CFLAGS=-O2 -Wall
 
-BAREMETAL_TESTS=simple-test error-test
-LINUX_TESTS=matrix-test barrier-test shmem-test lnx-simple-test client-test server-test
-PK_TESTS=pk-simple-test
+BAREMETAL_TESTS=simple-test error-test matrix-test
+LINUX_TESTS=lnx-matrix-test lnx-simple-test client-test server-test
+PK_TESTS=pk-simple-test pk-matrix-test
 ALL_TESTS=$(BAREMETAL_TESTS) $(LINUX_TESTS) $(PK_TESTS)
 
 ELF=$(addsuffix .elf, $(BAREMETAL_TESTS))
@@ -47,4 +47,4 @@ $(KERNEL_OBJS): %.o: %.c dma-syscalls.h
 	$(CC) $(CFLAGS) -c $<
 
 clean:
-	rm -f $(LINUX_TESTS) *.dump *.elf *.hex *.o
+	rm -f $(PK_TESTS) $(LINUX_TESTS) *.dump *.elf *.hex *.o
