@@ -39,7 +39,7 @@ int main(void)
 	// test that the sequencing is correct
 	err = dma_poll_recv();
 	if (err != DMA_RX_NOT_STARTED)
-		return 5;
+		return 0x10 | err;
 
 	dma_send_immediate(&addr, IMMEDIATE);
 
@@ -48,11 +48,11 @@ int main(void)
 		return err;
 
 	if (dma_read_immediate() != IMMEDIATE)
-		return 6;
+		return 0x20 | err;
 
 	dma_read_src_addr(&addr);
 	if (addr.port != PORT)
-		return 7;
+		return 0x30 | err;
 
 	// allow a write up to the end of the 
 	dma_track_recv(dst_array, ARR_SIZE * sizeof(int));

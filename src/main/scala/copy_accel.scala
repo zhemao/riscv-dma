@@ -5,13 +5,11 @@ import rocket.{RoCC, RoCCResponse, CoreParameters}
 import uncore._
 
 object CustomInstructions {
-  val DMA_SCATTER_PUT = UInt(0)
-  val DMA_GATHER_PUT  = UInt(1)
-  val DMA_SCATTER_GET = UInt(2)
-  val DMA_GATHER_GET  = UInt(3)
-  val DMA_TRACK_RECV  = UInt(4)
-  val DMA_POLL_RECV   = UInt(5)
-  val DMA_SEND_IMM    = UInt(6)
+  val DMA_PUT         = UInt(0)
+  val DMA_GET         = UInt(1)
+  val DMA_TRACK_RECV  = UInt(2)
+  val DMA_POLL_RECV   = UInt(3)
+  val DMA_SEND_IMM    = UInt(4)
 }
 
 object IRQCauses {
@@ -23,9 +21,30 @@ object IRQCauses {
 
 import CustomInstructions._
 
-class RoCCCSRFile extends DMABundle {
+object DMACSRs {
+  val SEGMENT_SIZE = 0
+  val SRC_STRIDE   = 1
+  val DST_STRIDE   = 2
+  val NSEGMENTS    = 3
+  val LOCAL_ADDR   = 4
+  val LOCAL_PORT   = 5
+  val REMOTE_ADDR  = 6
+  val REMOTE_PORT  = 7
+  val SENDER_ADDR  = 8
+  val SENDER_PORT  = 9
+  val SWITCH_ADDR  = 10
+  val SWITCH_PORT  = 11
+  val IMM_DATA     = 12
+  val PHYS         = 13
+  val IRQ_CAUSE    = 14
+}
+
+import DMACSRs._
+
+class DMACSRFile extends DMABundle {
   val segment_size = UInt(width = paddrBits)
-  val stride_size = UInt(width = paddrBits)
+  val src_stride = UInt(width = paddrBits)
+  val dst_stride = UInt(width = paddrBits)
   val nsegments = UInt(width = paddrBits)
   val header = new RemoteHeader
   val phys = Bool()
@@ -167,7 +186,6 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   val src = Reg(UInt(width = paddrBits))
   val dst = Reg(UInt(width = paddrBits))
   val segments_left = Reg(UInt(width = paddrBits))
-  val scatter = Reg(Bool())
   val direction = Reg(Bool())
   val immediate = Reg(Bool())
   val xact_id = Reg(init = UInt(0, dmaXactIdBits))
@@ -176,9 +194,10 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
     s_req_track :: s_resp :: Nil) = Enum(Bits(), 5)
   val state = Reg(init = s_idle)
 
-  val initCsrs = new RoCCCSRFile
+  val initCsrs = new DMACSRFile
   initCsrs.segment_size := UInt(0)
-  initCsrs.stride_size := UInt(0)
+  initCsrs.dst_stride := UInt(0)
+  initCsrs.src_stride := UInt(0)
   initCsrs.nsegments := UInt(0)
   initCsrs.phys := Bool(false)
   initCsrs.header.dst.addr := UInt(0)
@@ -190,26 +209,28 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
 
   when (io.csrs.wen) {
     switch (io.csrs.waddr) {
-      is (UInt(0))  { csrs.segment_size := io.csrs.wdata }
-      is (UInt(1))  { csrs.stride_size := io.csrs.wdata }
-      is (UInt(2))  { csrs.nsegments := io.csrs.wdata }
-      is (UInt(3))  { csrs.phys := (io.csrs.wdata != UInt(0)) }
-      is (UInt(4))  { csrs.header.dst.addr := io.csrs.wdata }
-      is (UInt(5))  { csrs.header.dst.port := io.csrs.wdata }
-      is (UInt(6))  { csrs.header.src.addr := io.csrs.wdata }
-      is (UInt(7))  { csrs.header.src.port := io.csrs.wdata }
+      is (UInt(SEGMENT_SIZE)) { csrs.segment_size := io.csrs.wdata }
+      is (UInt(SRC_STRIDE))   { csrs.src_stride := io.csrs.wdata }
+      is (UInt(DST_STRIDE))   { csrs.dst_stride := io.csrs.wdata }
+      is (UInt(NSEGMENTS))    { csrs.nsegments := io.csrs.wdata }
+      is (UInt(LOCAL_ADDR))   { csrs.header.src.addr := io.csrs.wdata }
+      is (UInt(LOCAL_PORT))   { csrs.header.src.port := io.csrs.wdata }
+      is (UInt(REMOTE_ADDR))  { csrs.header.dst.addr := io.csrs.wdata }
+      is (UInt(REMOTE_PORT))  { csrs.header.dst.port := io.csrs.wdata }
+      is (UInt(PHYS))         { csrs.phys := (io.csrs.wdata != UInt(0)) }
     }
   }
 
-  io.csrs.rdata(0) := csrs.segment_size
-  io.csrs.rdata(1) := csrs.stride_size
-  io.csrs.rdata(2) := csrs.nsegments
-  io.csrs.rdata(3) := csrs.phys
-  io.csrs.rdata(4) := csrs.header.dst.addr
-  io.csrs.rdata(5) := csrs.header.dst.port
-  io.csrs.rdata(6) := csrs.header.src.addr
-  io.csrs.rdata(7) := csrs.header.src.port
-  io.csrs.rdata(13) := csrs.cause
+  io.csrs.rdata(SEGMENT_SIZE) := csrs.segment_size
+  io.csrs.rdata(SRC_STRIDE)   := csrs.src_stride
+  io.csrs.rdata(DST_STRIDE)   := csrs.dst_stride
+  io.csrs.rdata(NSEGMENTS)    := csrs.nsegments
+  io.csrs.rdata(LOCAL_ADDR)   := csrs.header.src.addr
+  io.csrs.rdata(LOCAL_PORT)   := csrs.header.src.port
+  io.csrs.rdata(REMOTE_ADDR)  := csrs.header.dst.addr
+  io.csrs.rdata(REMOTE_PORT)  := csrs.header.dst.port
+  io.csrs.rdata(IRQ_CAUSE)    := csrs.cause
+  io.csrs.rdata(PHYS)         := csrs.phys
 
   val tx = Module(new TileLinkDMATx)
   tx.io.net <> io.net.tx
@@ -263,31 +284,27 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   resp.bits.data := resp_data
   resp.bits.rd := resp_rd
 
-  val small_step = csrs.segment_size
-  val large_step = csrs.segment_size + csrs.stride_size
-
   io.net.ctrl.cur_addr := csrs.header.src
   io.net.ctrl.switch_addr.ready := !tracker.io.inprogress &&
                                    !rx.io.busy && tx.io.cmd.ready
 
   val nowork = csrs.nsegments === UInt(0) || csrs.segment_size === UInt(0)
 
-  io.csrs.rdata(8) := io.net.ctrl.switch_addr.bits.addr
-  io.csrs.rdata(9) := io.net.ctrl.switch_addr.bits.port
-  io.csrs.rdata(10) := tracker.io.src_addr.addr
-  io.csrs.rdata(11) := tracker.io.src_addr.port
-  io.csrs.rdata(12) := tracker.io.imm_data
+  io.csrs.rdata(SWITCH_ADDR) := io.net.ctrl.switch_addr.bits.addr
+  io.csrs.rdata(SWITCH_PORT) := io.net.ctrl.switch_addr.bits.port
+  io.csrs.rdata(SENDER_ADDR) := tracker.io.src_addr.addr
+  io.csrs.rdata(SENDER_PORT) := tracker.io.src_addr.port
+  io.csrs.rdata(IMM_DATA)    := tracker.io.imm_data
 
   switch (state) {
     is (s_idle) {
       when (cmd.valid) {
         val funct = cmd.bits.inst.funct
-        when (funct(6, 2) === UInt(0)) {
+        when (funct(6, 1) === UInt(0)) {
           src := cmd.bits.rs1
           dst := cmd.bits.rs2
           segments_left := csrs.nsegments
-          scatter := !funct(0)
-          direction := !funct(1)
+          direction := !funct(0)
           immediate := Bool(false)
           resp_rd := cmd.bits.inst.rd
           resp_wanted := cmd.bits.inst.xd
@@ -317,13 +334,8 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
     }
     is (s_req_tx) {
       when (tx.io.cmd.ready) {
-        when (scatter) {
-          src := src + small_step
-          dst := dst + large_step
-        } .otherwise {
-          src := src + large_step
-          dst := dst + small_step
-        }
+        src := src + csrs.src_stride
+        dst := dst + csrs.dst_stride
         when (immediate || segments_left === UInt(1)) {
           state := s_wait_tx
         }

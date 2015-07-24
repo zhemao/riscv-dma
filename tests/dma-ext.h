@@ -22,23 +22,26 @@ struct dma_addr {
 
 static inline void setup_dma(struct dma_addr *remote_addr,
 		unsigned long segsize,
-		unsigned long stride,
+		unsigned long src_stride,
+		unsigned long dst_stride,
 		unsigned long nsegments)
 {
 	write_csr(0x800, segsize);
-	write_csr(0x801, stride);
-	write_csr(0x802, nsegments);
-	write_csr(0x804, remote_addr->addr);
-	write_csr(0x805, remote_addr->port);
+	write_csr(0x801, src_stride);
+	write_csr(0x802, dst_stride);
+	write_csr(0x803, nsegments);
+	write_csr(0x806, remote_addr->addr);
+	write_csr(0x807, remote_addr->port);
 }
 
-static inline int dma_scatter_put(struct dma_addr *remote_addr, void *dst, void *src,
+static inline int dma_scatter_put(
+		struct dma_addr *remote_addr, void *dst, void *src,
 		unsigned long segsize, unsigned long stride,
 		unsigned long nsegments)
 {
 	int error;
 
-	setup_dma(remote_addr, segsize, stride, nsegments);
+	setup_dma(remote_addr, segsize, 0, stride, nsegments);
 
 	asm volatile ("fence");
 	asm volatile ("custom0 %[error], %[src], %[dst], 0" :
@@ -55,10 +58,10 @@ static inline int dma_gather_put(struct dma_addr *remote_addr, void *dst, void *
 {
 	int error;
 
-	setup_dma(remote_addr, segsize, stride, nsegments);
+	setup_dma(remote_addr, segsize, stride, 0, nsegments);
 
 	asm volatile ("fence");
-	asm volatile ("custom0 %[error], %[src], %[dst], 1" :
+	asm volatile ("custom0 %[error], %[src], %[dst], 0" :
 			[error] "=r" (error) :
 			[src] "r" (src), [dst] "r" (dst));
 	asm volatile ("fence");
@@ -72,10 +75,10 @@ static inline int dma_scatter_get(struct dma_addr *remote_addr, void *dst, void 
 {
 	int error;
 
-	setup_dma(remote_addr, segsize, stride, nsegments);
+	setup_dma(remote_addr, segsize, 0, stride, nsegments);
 
 	asm volatile ("fence");
-	asm volatile ("custom0 %[error], %[src], %[dst], 2" :
+	asm volatile ("custom0 %[error], %[src], %[dst], 1" :
 			[error] "=r" (error) :
 			[src] "r" (src), [dst] "r" (dst));
 	asm volatile ("fence");
@@ -89,10 +92,10 @@ static inline int dma_gather_get(struct dma_addr *remote_addr, void *dst, void *
 {
 	int error;
 
-	setup_dma(remote_addr, segsize, stride, nsegments);
+	setup_dma(remote_addr, segsize, stride, 0, nsegments);
 
 	asm volatile ("fence");
-	asm volatile ("custom0 %[error], %[src], %[dst], 3" :
+	asm volatile ("custom0 %[error], %[src], %[dst], 1" :
 			[error] "=r" (error) :
 			[src] "r" (src), [dst] "r" (dst));
 	asm volatile ("fence");
@@ -114,28 +117,28 @@ dma_contig_get(struct dma_addr *remote_addr, void *dst, void *src, unsigned long
 
 static inline void dma_raw_bind_addr(struct dma_addr *addr)
 {
-	write_csr(0x806, addr->addr);
-	write_csr(0x807, addr->port);
+	write_csr(0x804, addr->addr);
+	write_csr(0x805, addr->port);
 }
 
 static inline void dma_track_recv(void *dst, unsigned long nbytes)
 {
 	write_csr(0x800, nbytes);
-	asm volatile ("custom0 0, %[dst], 0, 4" : : [dst] "r" (dst));
+	asm volatile ("custom0 0, %[dst], 0, 2" : : [dst] "r" (dst));
 }
 
 static inline int dma_poll_recv(void)
 {
 	int err;
-	asm volatile ("custom0 %[err], 0, 0, 5" : [err] "=r" (err));
+	asm volatile ("custom0 %[err], 0, 0, 3" : [err] "=r" (err));
 	return err;
 }
 
 static inline int dma_send_immediate(struct dma_addr *addr, unsigned long imm)
 {
 	int err;
-	setup_dma(addr, 0, 0, 0);
-	asm volatile ("custom0 %[err], %[imm], 0, 6" :
+	setup_dma(addr, 0, 0, 0, 0);
+	asm volatile ("custom0 %[err], %[imm], 0, 4" :
 			[err] "=r" (err) : [imm] "r" (imm));
 	return err;
 }
@@ -159,13 +162,13 @@ static inline int dma_raw_wait_recv(void)
 
 static inline void dma_read_src_addr(struct dma_addr *addr)
 {
-	addr->addr = read_csr(0x80A);
-	addr->port = read_csr(0x80B);
+	addr->addr = read_csr(0x808);
+	addr->port = read_csr(0x809);
 }
 
 static inline void dma_track_immediate(void)
 {
-	asm volatile ("custom0 0, zero, 1, 4");
+	asm volatile ("custom0 0, zero, 1, 2");
 }
 
 static inline unsigned long dma_read_immediate(void)
