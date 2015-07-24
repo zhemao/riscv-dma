@@ -61,9 +61,8 @@ object RxErrors {
   val noerror = Bits("b000")
   val notStarted = Bits("b001")
   val notFinished = Bits("b010")
-  val earlyFinish = Bits("b011")
-  val rxNack = Bits("b100")
-  val noRoute = Bits("b101")
+  val rxNack = Bits("b011")
+  val noRoute = Bits("b100")
 }
 
 class RecvTracker extends DMAModule {
@@ -136,14 +135,9 @@ class RecvTracker extends DMAModule {
       }
     }
     is (s_wait_acquire) {
-      when (io.acquire.fire() && is_put_block) {
-        when (!right_xact_id) {
-          error := RxErrors.earlyFinish
-          state := s_idle
-        } .otherwise {
-          last_grant := io.acquire.bits.last
-          state := s_wait_grant
-        }
+      when (io.acquire.fire() && is_put_block && right_xact_id) {
+        last_grant := io.acquire.bits.last
+        state := s_wait_grant
       }
     }
     is (s_wait_grant) {
