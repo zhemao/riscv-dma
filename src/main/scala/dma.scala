@@ -522,7 +522,7 @@ class TileLinkDMARx extends DMAModule {
           page_idx := net_page_idx
           state := s_ptw_req
         }
-        direction := (net_acquire.a_type === Acquire.putBlockType)
+        direction := (net_acquire.a_type != Acquire.getBlockType)
         remote_addr := io.net.acquire.bits.header.src
         net_xact_id := net_acquire.client_xact_id
       }
@@ -579,6 +579,7 @@ class TileLinkDMARx extends DMAModule {
     is (s_recv) {
       when (io.net.acquire.valid) {
         when (immediate) {
+          nack := Bool(false)
           state := s_ack
         } .elsewhen (direction) {
           buffer.write(beat_idx, net_acquire.data, net_acquire.full_wmask())
