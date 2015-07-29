@@ -37,7 +37,7 @@ $(ELF): %.elf: %.o init.o dma-ext.h
 $(NOKERN_OBJS): %.o: %.c dma-ext.h
 	$(CC) $(CFLAGS) -c $<
 
-$(KERNEL_OBJS): %.o: %.c dma-syscalls.h
+$(KERNEL_OBJS): %.o: %.c dma-ext.h dma-syscalls.h
 	$(CC) $(CFLAGS) -c $<
 
 %.o: %.c %.h

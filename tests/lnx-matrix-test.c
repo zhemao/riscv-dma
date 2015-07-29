@@ -60,8 +60,10 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	stride_size = (N - M) * sizeof(int);
 
 	// send cutout to slave
-	ret = dma_gather_put(&remote_addr, mat_b, start,
-			seg_size, stride_size, nsegs);
+	dma_gather_put(&remote_addr, mat_b, start,
+		seg_size, stride_size, nsegs);
+	ret = dma_raw_wait_send();
+
 	if (ret) {
 		fprintf(stderr, "dma_gather_put failed with code %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -81,8 +83,9 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	barrier_wait(barrier);
 
 	// read doubled data back from slave
-	ret = dma_scatter_get(&remote_addr, start, mat_b,
+	dma_scatter_get(&remote_addr, start, mat_b,
 			seg_size, stride_size, nsegs);
+	ret = dma_raw_wait_send();
 	if (ret) {
 		fprintf(stderr, "dma_scatter_get failed with code %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -131,7 +134,8 @@ int slave_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	barrier_wait(barrier);
 
 	// send matrix b back to master
-	ret = dma_contig_put(&remote_addr, mat_b, mat_b, M * M * sizeof(int));
+	dma_contig_put(&remote_addr, mat_b, mat_b, M * M * sizeof(int));
+	ret = dma_raw_wait_send();
 	if (ret) {
 		fprintf(stderr, "dma_contig_put failed with code %d\n", ret);
 		exit(EXIT_FAILURE);

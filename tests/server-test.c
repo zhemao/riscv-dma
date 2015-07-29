@@ -39,14 +39,22 @@ int main(void)
 			return -err;
 		}
 
+		if (dma_read_immediate())
+			break;
+
 		dma_read_src_addr(&client);
 		printf("received request from %lx:%u\n",
 				client.addr, client.port);
 
 		dma_send_immediate(&client, (unsigned long) src);
+		err = dma_raw_wait_send();
+		if (err)
+			return -err;
 
 		printf("send address\n");
 	}
+
+	dma_unbind_addr();
 
 	return 0;
 }

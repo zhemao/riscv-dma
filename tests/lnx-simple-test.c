@@ -35,7 +35,9 @@ void parent_thread(struct unshared_state *unshared)
 
 	remote_addr.addr = 0;
 	remote_addr.port = CHILD_PORT;
-	ret = dma_contig_put(&remote_addr, unshared->dst, unshared->src, NITEMS);
+	dma_contig_put(&remote_addr, unshared->dst, unshared->src, NITEMS);
+
+	ret = dma_raw_wait_send();
 	if (ret) {
 		fprintf(stderr, "send failed with error code: %d\n", ret);
 		exit(EXIT_FAILURE);

@@ -26,7 +26,8 @@ int main(void)
 	dma_track_immediate();
 
 	printf("Requesting address from server...\n");
-	err = dma_send_immediate(&server, 0);
+	dma_send_immediate(&server, 0);
+	err = dma_raw_wait_send();
 	if (err)
 		return -err;
 
@@ -38,7 +39,8 @@ int main(void)
 
 	printf("Received address %p\n", src);
 
-	err = dma_contig_get(&server, dst, src, sizeof(dst));
+	dma_contig_get(&server, dst, src, sizeof(dst));
+	err = dma_raw_wait_send();
 	if (err)
 		return -err;
 
