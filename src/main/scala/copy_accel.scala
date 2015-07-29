@@ -7,16 +7,17 @@ import uncore._
 object CustomInstructions {
   val DMA_PUT         = UInt(0)
   val DMA_GET         = UInt(1)
-  val DMA_TRACK_PUT  = UInt(2)
-  val DMA_POLL_RECV   = UInt(3)
+  val DMA_TRACK_RECV  = UInt(2)
+  val DMA_POLL        = UInt(3)
   val DMA_SEND_IMM    = UInt(4)
 }
 
 object IRQCauses {
   val RX_FINISHED = UInt(0)
-  val ADDR_SWITCH = UInt(1)
+  val TX_FINISHED = UInt(1)
+  val ADDR_SWITCH = UInt(2)
 
-  val ncauses = 2
+  val ncauses = 3
 }
 
 import CustomInstructions._
@@ -41,7 +42,7 @@ object DMACSRs {
 
 import DMACSRs._
 
-class DMACSRFile extends DMABundle {
+class DMACSRs extends DMABundle {
   val segment_size = UInt(width = paddrBits)
   val src_stride = UInt(width = paddrBits)
   val dst_stride = UInt(width = paddrBits)
@@ -55,6 +56,7 @@ class TrackerCmd extends Bundle with CoreParameters {
   val start = UInt(width = paddrBits)
   val nbytes = UInt(width = paddrBits)
   val immediate = Bool()
+  val direction = Bool()
 }
 
 object RxErrors {
@@ -88,8 +90,11 @@ class RecvTracker extends DMAModule {
   val grant = io.grant.bits.payload
 
   val is_put_block = acquire.a_type === Acquire.putBlockType
+  val is_get_block = acquire.a_type === Acquire.getBlockType
   val is_immediate = acquire.a_type === Acquire.immediateType
-  val is_ack = grant.g_type === Grant.putAckType
+
+  val is_ack = grant.g_type === Grant.putAckType ||
+               grant.g_type === Grant.getDataBlockType
   val is_nack = grant.g_type === Grant.nackType
 
   val first_block = Reg(UInt(width = tlBlockAddrBits))
@@ -112,6 +117,9 @@ class RecvTracker extends DMAModule {
   val src_addr = Reg(new RemoteAddress)
   io.src_addr := src_addr
 
+  val immediate = Reg(Bool())
+  val direction = Reg(Bool())
+
   switch (state) {
     is (s_idle) {
       when (io.cmd.valid) {
@@ -119,23 +127,37 @@ class RecvTracker extends DMAModule {
         first_block := io.cmd.bits.start(paddrBits - 1, tlBlockOffset)
         end_block := end_addr(paddrBits - 1, tlBlockOffset)
         error := RxErrors.notStarted
-        when (io.cmd.bits.immediate) {
-          state := s_wait_imm
-        } .otherwise {
-          state := s_wait_first
-        }
+        immediate := io.cmd.bits.immediate
+        direction := io.cmd.bits.direction
+        state := s_wait_first
       }
     }
     is (s_wait_first) {
-      when (io.acquire.fire() && is_put_block && right_addr) {
+      when (io.acquire.fire()) {
         xact_id := acquire.client_xact_id
         src_addr := io.acquire.bits.header.src
-        error := RxErrors.notFinished
-        state := s_wait_grant
+        last_grant := io.acquire.bits.last
+
+        when (immediate) {
+          imm_data := acquire.full_addr()
+        }
+
+        val correct_acquire =
+          (immediate && is_immediate) ||
+          (!immediate && right_addr &&
+            (direction && is_put_block || !direction && is_get_block))
+
+        when (correct_acquire) {
+          error := RxErrors.notFinished
+          state := s_wait_grant
+        }
       }
     }
     is (s_wait_acquire) {
-      when (io.acquire.fire() && is_put_block && right_xact_id) {
+      val correct_acquire = right_xact_id &&
+        (direction && is_put_block || !direction && is_get_block)
+
+      when (io.acquire.fire() && correct_acquire) {
         last_grant := io.acquire.bits.last
         state := s_wait_grant
       }
@@ -146,7 +168,7 @@ class RecvTracker extends DMAModule {
         state := s_idle
       } .elsewhen (io.grant.fire()) {
         when (is_ack) {
-          when (last_grant) {
+          when (immediate || last_grant) {
             error := RxErrors.noerror
             state := s_idle
           } .otherwise {
@@ -158,25 +180,40 @@ class RecvTracker extends DMAModule {
         }
       }
     }
-    is (s_wait_imm) {
-      when (io.acquire.fire() && is_immediate) {
-        imm_data := acquire.full_addr()
-        src_addr := io.acquire.bits.header.src
-        error := RxErrors.noerror
-        state := s_idle
-      }
-    }
   }
 
   io.cmd.ready := (state === s_idle)
 
   val last_ready = Reg(next = io.cmd.ready)
   io.finished := io.cmd.ready && !last_ready
-
-  io.inprogress := (state != s_idle) && (state != s_wait_first)
+  io.inprogress := (error === RxErrors.notFinished)
 }
 
-class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
+class SegmentSenderCommand extends DMABundle {
+  val dst = UInt(width = paddrBits)
+  val src = UInt(width = paddrBits)
+  val direction = Bool()
+  val immediate = Bool()
+}
+
+class SegmentSender extends DMAModule {
+  val io = new Bundle {
+    val cmd = Decoupled(new SegmentSenderCommand).flip
+    val csrs = (new DMACSRs).asInput
+    val dma = Decoupled(new TileLinkDMACommand)
+    val busy = Bool(OUTPUT)
+    val finished = Bool(OUTPUT)
+  }
+
+  val s_idle :: s_req :: s_wait :: Nil = Enum(Bits(), 3)
+  val state = Reg(init = s_idle)
+
+  val cmd = Queue(io.cmd)
+  cmd.ready := (state === s_idle)
+
+  io.busy := (state != s_idle) || cmd.valid
+  io.finished := !io.busy && Reg(next = io.busy)
+
   val src = Reg(UInt(width = paddrBits))
   val dst = Reg(UInt(width = paddrBits))
   val segments_left = Reg(UInt(width = paddrBits))
@@ -186,11 +223,58 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   val src_step = Reg(UInt(width = paddrBits))
   val dst_step = Reg(UInt(width = paddrBits))
 
-  val (s_idle :: s_req_tx :: s_wait_tx ::
-    s_req_track :: s_resp :: Nil) = Enum(Bits(), 5)
+  io.dma.valid := (state === s_req)
+  io.dma.bits.src_start := src
+  io.dma.bits.dst_start := dst
+  io.dma.bits.nbytes := io.csrs.segment_size
+  io.dma.bits.direction := direction
+  io.dma.bits.header := io.csrs.header
+  io.dma.bits.xact_id := xact_id
+  io.dma.bits.immediate := immediate
+
+  val nowork = !cmd.bits.immediate &&
+    (io.csrs.segment_size === UInt(0) || io.csrs.nsegments === UInt(0))
+
+  switch (state) {
+    is (s_idle) {
+      when (cmd.valid) {
+        dst := cmd.bits.dst
+        src := cmd.bits.src
+        direction := cmd.bits.direction
+        immediate := cmd.bits.immediate
+        dst_step := io.csrs.segment_size + io.csrs.dst_stride
+        src_step := io.csrs.segment_size + io.csrs.src_stride
+        segments_left := io.csrs.nsegments
+
+        when (!nowork) { state := s_req }
+      }
+    }
+    is (s_req) {
+      when (io.dma.ready) {
+        src := src + src_step
+        dst := dst + dst_step
+        when (immediate || segments_left === UInt(1)) {
+          state := s_wait
+        }
+        segments_left := segments_left - UInt(1)
+      }
+    }
+    is (s_wait) {
+      when (io.dma.ready) {
+        xact_id := xact_id + UInt(1)
+        state := s_idle
+      }
+    }
+  }
+}
+
+class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
+
+  val (s_idle :: s_req_send ::
+    s_req_track :: s_resp :: Nil) = Enum(Bits(), 4)
   val state = Reg(init = s_idle)
 
-  val initCsrs = new DMACSRFile
+  val initCsrs = new DMACSRs
   initCsrs.segment_size := UInt(0)
   initCsrs.dst_stride := UInt(0)
   initCsrs.src_stride := UInt(0)
@@ -228,18 +312,24 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   io.csrs.rdata(IRQ_CAUSE)    := csrs.cause
   io.csrs.rdata(PHYS)         := csrs.phys
 
+  val src = Reg(UInt(width = paddrBits))
+  val dst = Reg(UInt(width = paddrBits))
+  val direction = Reg(Bool())
+  val immediate = Reg(Bool())
+
+  val sender = Module(new SegmentSender)
+  sender.io.csrs := csrs
+  sender.io.cmd.valid := (state === s_req_send)
+  sender.io.cmd.bits.src := src
+  sender.io.cmd.bits.dst := dst
+  sender.io.cmd.bits.direction := direction
+  sender.io.cmd.bits.immediate := immediate
+
   val tx = Module(new TileLinkDMATx)
   tx.io.net <> io.net.tx
   tx.io.route_error := io.net.ctrl.route_error(0)
-  tx.io.cmd.valid := (state === s_req_tx)
-  tx.io.cmd.bits.src_start := src
-  tx.io.cmd.bits.dst_start := dst
-  tx.io.cmd.bits.nbytes := csrs.segment_size
-  tx.io.cmd.bits.direction := direction
-  tx.io.cmd.bits.header := csrs.header
-  tx.io.cmd.bits.xact_id := xact_id
-  tx.io.cmd.bits.immediate := immediate
   tx.io.phys := csrs.phys
+  tx.io.cmd <> sender.io.dma
 
   val rx = Module(new TileLinkDMARx)
   rx.io.net <> io.net.rx
@@ -256,6 +346,7 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   tracker.io.cmd.bits.start := dst
   tracker.io.cmd.bits.nbytes := src
   tracker.io.cmd.bits.immediate := immediate
+  tracker.io.cmd.bits.direction := direction
 
   val dmemArb = Module(new ClientUncachedTileLinkIOArbiter(2))
   dmemArb.io.in(0) <> tx.io.dmem
@@ -299,57 +390,34 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
         when (funct(6, 1) === UInt(0)) {
           dst := cmd.bits.rs1
           src := cmd.bits.rs2
-          dst_step := csrs.segment_size + csrs.dst_stride
-          src_step := csrs.segment_size + csrs.src_stride
-          segments_left := csrs.nsegments
           direction := !funct(0)
           immediate := Bool(false)
-          resp_rd := cmd.bits.inst.rd
-          resp_wanted := cmd.bits.inst.xd
-          // If nsegments or segment_size is 0, there's nothing to do
-          when (!nowork) {
-            state := s_req_tx
-          } .elsewhen (cmd.bits.inst.xd) {
-            state := s_resp
-          }
-        } .elsewhen (funct === DMA_TRACK_PUT) {
-          dst := cmd.bits.rs1
-          src := cmd.bits.rs2
-          immediate := cmd.bits.inst.rd(0)
-          state := s_req_track
-        } .elsewhen (funct === DMA_POLL_RECV) {
-          resp_rd := cmd.bits.inst.rd
-          resp_data := tracker.io.error
-          state := s_resp
+          state := s_req_send
         } .elsewhen (funct === DMA_SEND_IMM) {
           dst := cmd.bits.rs1
           immediate := Bool(true)
           direction := Bool(true)
+          state := s_req_send
+        } .elsewhen (funct === DMA_TRACK_RECV) {
+          dst := cmd.bits.rs1
+          src := cmd.bits.rs2
+          direction := !cmd.bits.inst.rd(0)
+          immediate := cmd.bits.inst.rd(1)
+          state := s_req_track
+        } .elsewhen (funct === DMA_POLL) {
           resp_rd := cmd.bits.inst.rd
-          resp_wanted := cmd.bits.inst.xd
-          state := s_req_tx
-        }
-      }
-    }
-    is (s_req_tx) {
-      when (tx.io.cmd.ready) {
-        src := src + src_step
-        dst := dst + dst_step
-        when (immediate || segments_left === UInt(1)) {
-          state := s_wait_tx
-        }
-        segments_left := segments_left - UInt(1)
-      }
-    }
-    is (s_wait_tx) {
-      when (tx.io.cmd.ready) {
-        when (resp_wanted) {
-          resp_data := tx.io.error
+          resp_data := Mux(cmd.bits.inst.rs1(0),
+            // rs1 = 1 means poll for send completion
+            Mux(sender.io.busy, TxErrors.notFinished, tx.io.error),
+            // rs1 = 0 means poll for recv completion
+            tracker.io.error)
           state := s_resp
-        } .otherwise {
-          state := s_idle
         }
-        xact_id := xact_id + UInt(1)
+      }
+    }
+    is (s_req_send) {
+      when (sender.io.cmd.ready) {
+        state := s_idle
       }
     }
     is (s_req_track) {
@@ -365,18 +433,15 @@ class CopyAccelerator extends RoCC with DMAParameters with TileLinkParameters {
   }
 
   val tracker_irq = tracker.io.finished
+  val sender_irq = sender.io.finished
   val switch_irq = io.net.ctrl.switch_addr.fire()
 
-  when (tracker_irq) {
-    csrs.cause := IRQCauses.RX_FINISHED
-  }
-
-  when (switch_irq) {
-    csrs.cause := IRQCauses.ADDR_SWITCH
-  }
+  when (tracker_irq) { csrs.cause := IRQCauses.RX_FINISHED }
+  when (sender_irq)  { csrs.cause := IRQCauses.TX_FINISHED }
+  when (switch_irq)  { csrs.cause := IRQCauses.ADDR_SWITCH }
 
   io.busy := (state != s_idle) || cmd.valid
-  io.interrupt := Reg(next = tracker_irq || switch_irq)
+  io.interrupt := Reg(next = tracker_irq || sender_irq || switch_irq)
 
   io.mem.req.valid := Bool(false)
   io.imem.acquire.valid := Bool(false)

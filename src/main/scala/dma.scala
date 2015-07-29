@@ -24,10 +24,11 @@ abstract class DMABundle extends Bundle
   with DMAParameters with CoreParameters with TileLinkParameters
 
 object TxErrors {
-  val noerror   = Bits("b00")
-  val pageFault = Bits("b01")
-  val nack      = Bits("b10")
-  val noRoute   = Bits("b11")
+  val noerror     = Bits("b000")
+  val notFinished = Bits("b001")
+  val pageFault   = Bits("b010")
+  val nack        = Bits("b011")
+  val noRoute     = Bits("b100")
 }
 
 class TileLinkDMACommand extends DMABundle {

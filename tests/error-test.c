@@ -14,17 +14,19 @@ int main(void)
 	dma_raw_bind_addr(&addr);
 
 	// turn phys back off so we get a page fault
-	write_csr(0x803, 0);
-	err = dma_contig_put(&addr, 0, 0, 1024);
+	write_csr(0x80D, 0);
+	dma_contig_put(&addr, 0, 0, 1024);
+	err = dma_raw_wait_send();
 
 	if (err != DMA_TX_PAGEFAULT)
 		return (0x10 | err);
 
 	// now turn it back on
-	write_csr(0x803, 1);
+	write_csr(0x80D, 1);
 
 	addr.port = 102;
-	err = dma_contig_put(&addr, dst, src, 12 * sizeof(int));
+	dma_contig_put(&addr, dst, src, 12 * sizeof(int));
+	err = dma_raw_wait_send();
 	if (err != DMA_TX_NOROUTE)
 		return (0x20 | err);
 

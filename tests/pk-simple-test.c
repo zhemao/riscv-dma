@@ -44,11 +44,7 @@ int main(void)
 	dma_track_put(dst, NITEMS);
 
 	// do a put to our own CPU
-	ret = dma_contig_put(&addr, dst, src, NITEMS);
-	if (ret) {
-		printf("Error sending data: %d\n", ret);
-		exit(EXIT_FAILURE);
-	}
+	dma_contig_put(&addr, dst, src, NITEMS);
 
 	ret = dma_raw_wait_recv();
 	if (ret) {

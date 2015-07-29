@@ -46,8 +46,9 @@ int main(void)
 	seg_size = M * sizeof(int);
 	stride_size = (N - M) * sizeof(int);
 
-	ret = dma_gather_put(&addr, mat_b, start,
-			seg_size, stride_size, nsegs);
+	dma_gather_put(&addr, mat_b, start,
+		seg_size, stride_size, nsegs);
+	ret = dma_raw_wait_send();
 	if (ret)
 		return 0x10 | ret;
 
@@ -57,8 +58,9 @@ int main(void)
 	for (i = 0; i < M * M; i++)
 		mat_b[i] *= 2;
 
-	ret = dma_scatter_get(&addr, start, mat_b,
-			seg_size, stride_size, nsegs);
+	dma_scatter_get(&addr, start, mat_b,
+		seg_size, stride_size, nsegs);
+	ret = dma_raw_wait_send();
 	if (ret)
 		return 0x30 | ret;
 

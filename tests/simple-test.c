@@ -39,16 +39,16 @@ int main(void)
 	// test that the sequencing is correct
 	err = dma_poll_recv();
 	if (err != DMA_RX_NOT_STARTED)
-		return 0x10 | err;
+		return err;
 
 	dma_send_immediate(&addr, IMMEDIATE);
 
 	err = dma_raw_wait_recv();
 	if (err)
-		return err;
+		return 0x10 | err;
 
 	if (dma_read_immediate() != IMMEDIATE)
-		return 0x20 | err;
+		return 0x20;
 
 	dma_read_src_addr(&addr);
 	if (addr.port != PORT)
@@ -57,13 +57,11 @@ int main(void)
 	// allow a write up to the end of the 
 	dma_track_put(dst_array, ARR_SIZE * sizeof(int));
 
-	err = dma_gather_put(&addr, dst, src, COPY_SIZE * sizeof(int), 0, 1);
-	if (err)
-		return err;
+	dma_gather_put(&addr, dst, src, COPY_SIZE * sizeof(int), 0, 1);
 
 	err = dma_raw_wait_recv();
 	if (err)
-		return err;
+		return 0x40 | err;
 
 	for (i = 0; i < DST_OFF; i++) {
 		if (dst_array[i] != 0)
