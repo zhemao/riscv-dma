@@ -48,7 +48,7 @@ class TileLinkDMATx extends DMAModule {
     val dptw = new TLBPTWIO
     val net = new RemoteTileLinkIO
     val phys = Bool(INPUT)
-    val error = TxErrors.noerror.clone.asOutput
+    val error = TxErrors.noerror.cloneType.asOutput
     val route_error = Bool(INPUT)
   }
 

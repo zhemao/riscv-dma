@@ -72,7 +72,7 @@ class RecvTracker extends DMAModule {
     val cmd = Decoupled(new TrackerCmd).flip
     val acquire = Valid(new RemoteNetworkIO(new Acquire)).flip
     val grant = Valid(new RemoteNetworkIO(new Grant)).flip
-    val error = RxErrors.noerror.clone.asOutput
+    val error = RxErrors.noerror.cloneType.asOutput
     val route_error = Bool(INPUT)
     val imm_data = UInt(OUTPUT, paddrBits)
     val src_addr = new RemoteAddress().asOutput
