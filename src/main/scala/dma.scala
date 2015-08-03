@@ -24,11 +24,10 @@ abstract class DMABundle extends Bundle
   with DMAParameters with CoreParameters with TileLinkParameters
 
 object TxErrors {
-  val noerror     = Bits("b000")
-  val notFinished = Bits("b001")
-  val pageFault   = Bits("b010")
-  val nack        = Bits("b011")
-  val noRoute     = Bits("b100")
+  val noerror     = Bits("b00")
+  val pageFault   = Bits("b01")
+  val nack        = Bits("b10")
+  val noRoute     = Bits("b11")
 }
 
 class TileLinkDMACommand extends DMABundle {
@@ -436,9 +435,9 @@ class TileLinkDMARx extends DMAModule {
     val dmem = new ClientUncachedTileLinkIO
     val dptw = new TLBPTWIO
     val phys = Bool(INPUT)
-    val busy = Bool(OUTPUT)
     val local_addr = new RemoteAddress().asInput
     val route_error = Bool(INPUT)
+    val imm_data = UInt(OUTPUT, paddrBits)
   }
 
   private val tlBlockOffset = tlBeatAddrBits + tlByteAddrBits
@@ -459,8 +458,6 @@ class TileLinkDMARx extends DMAModule {
        s_get_acquire :: s_get_grant :: s_put_acquire :: s_put_grant ::
        s_ptw_req :: s_ptw_resp :: s_discard :: Nil) = Enum(Bits(), 11)
   val state = Reg(init = s_idle)
-
-  io.busy := (state != s_idle)
 
   val remote_addr = Reg(new RemoteAddress)
   val local_addr = Reg(new RemoteAddress)
@@ -502,6 +499,9 @@ class TileLinkDMARx extends DMAModule {
   io.dptw.req.bits.prv := Bits(0)
   io.dptw.req.bits.store := Bool(false)
   io.dptw.req.bits.fetch := Bool(true)
+
+  val imm_data = Reg(UInt(width = paddrBits))
+  io.imm_data := imm_data
 
   switch (state) {
     is (s_idle) {
@@ -580,6 +580,7 @@ class TileLinkDMARx extends DMAModule {
     is (s_recv) {
       when (io.net.acquire.valid) {
         when (immediate) {
+          imm_data := net_acquire.full_addr()
           nack := Bool(false)
           state := s_ack
         } .elsewhen (direction) {

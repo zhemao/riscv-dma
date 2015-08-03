@@ -36,7 +36,7 @@ int main(void)
 
 	addr.addr = 0;
 	addr.port = PORT;
-	dma_raw_bind_addr(&addr);
+	dma_bind_addr(&addr);
 
 	for (i = 0; i < N * N; i++)
 		mat_a[i] = i;
@@ -48,7 +48,7 @@ int main(void)
 
 	dma_gather_put(&addr, mat_b, start,
 		seg_size, stride_size, nsegs);
-	ret = dma_raw_wait_send();
+	ret = dma_send_error();
 	if (ret)
 		return 0x10 | ret;
 
@@ -60,7 +60,7 @@ int main(void)
 
 	dma_scatter_get(&addr, start, mat_b,
 		seg_size, stride_size, nsegs);
-	ret = dma_raw_wait_send();
+	ret = dma_send_error();
 	if (ret)
 		return 0x30 | ret;
 

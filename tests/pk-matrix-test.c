@@ -40,7 +40,7 @@ int main(void)
 
 	addr.addr = 0;
 	addr.port = PORT;
-	dma_raw_bind_addr(&addr);
+	dma_bind_addr(&addr);
 
 	for (i = 0; i < N * N; i++)
 		mat_a[i] = i;
@@ -50,10 +50,10 @@ int main(void)
 	seg_size = M * sizeof(int);
 	stride_size = (N - M) * sizeof(int);
 
-	dma_track_put(mat_b, seg_size);
 	dma_gather_put(&addr, mat_b, start,
 		seg_size, stride_size, nsegs);
-	ret = dma_raw_wait_recv();
+	dma_fence();
+	ret = dma_send_error();
 
 	if (ret) {
 		fprintf(stderr, "dma_gather_put failed with code %d\n", ret);
@@ -68,10 +68,10 @@ int main(void)
 	for (i = 0; i < M * M; i++)
 		mat_b[i] *= 2;
 
-	dma_track_get(mat_b, seg_size);
 	dma_scatter_get(&addr, start, mat_b,
 		seg_size, stride_size, nsegs);
-	ret = dma_raw_wait_recv();
+	dma_fence();
+	ret = dma_send_error();
 
 	if (ret) {
 		fprintf(stderr, "dma_scatter_get failed with code %d\n", ret);

@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "barrier.h"
-#include "dma-syscalls.h"
+#include "dma-ext.h"
 
 #define N 128
 #define M 32
@@ -62,7 +62,8 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	// send cutout to slave
 	dma_gather_put(&remote_addr, mat_b, start,
 		seg_size, stride_size, nsegs);
-	ret = dma_wait_send();
+	dma_fence();
+	ret = dma_send_error();
 
 	if (ret) {
 		fprintf(stderr, "dma_gather_put failed with code %d\n", ret);
@@ -85,7 +86,8 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	// read doubled data back from slave
 	dma_scatter_get(&remote_addr, start, mat_b,
 			seg_size, stride_size, nsegs);
-	ret = dma_wait_send();
+	dma_fence();
+	ret = dma_send_error();
 	if (ret) {
 		fprintf(stderr, "dma_scatter_get failed with code %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -97,8 +99,6 @@ int master_process(struct barrier *barrier, int *mat_a, int *mat_b)
 	printf("master check data from slave\n");
 	if (check_matrix(mat_a, mat_b))
 		error = 1;
-
-	dma_unbind_addr();
 
 	return error;
 }
@@ -135,7 +135,8 @@ int slave_process(struct barrier *barrier, int *mat_a, int *mat_b)
 
 	// send matrix b back to master
 	dma_contig_put(&remote_addr, mat_b, mat_b, M * M * sizeof(int));
-	ret = dma_wait_send();
+	dma_fence();
+	ret = dma_send_error();
 	if (ret) {
 		fprintf(stderr, "dma_contig_put failed with code %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -151,8 +152,6 @@ int slave_process(struct barrier *barrier, int *mat_a, int *mat_b)
 			error = 1;
 		}
 	}
-
-	dma_unbind_addr();
 
 	return error;
 }

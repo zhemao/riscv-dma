@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "dma-syscalls.h"
+#include "dma-ext.h"
 
 #define SERVER_PORT 1000
 #define CLIENT_PORT 1001
@@ -27,11 +27,13 @@ int main(void)
 
 	printf("Requesting address from server...\n");
 	dma_send_immediate(&server, 0);
-	err = dma_raw_wait_send();
+	dma_fence();
+
+	err = dma_send_error();
 	if (err)
 		return -err;
 
-	err = dma_wait_recv();
+	err = dma_recv_error();
 	if (err)
 		return -err;
 
@@ -40,7 +42,9 @@ int main(void)
 	printf("Received address %p\n", src);
 
 	dma_contig_get(&server, dst, src, sizeof(dst));
-	err = dma_raw_wait_send();
+	dma_fence();
+
+	err = dma_send_error();
 	if (err)
 		return -err;
 
@@ -48,8 +52,6 @@ int main(void)
 		if (dst[i] != i * 3)
 			printf("[%d] expected %d, got %d\n", i, i * 3, dst[i]);
 	}
-
-	dma_unbind_addr();
 
 	return 0;
 }

@@ -12,7 +12,7 @@
 int main(void)
 {
 	uint8_t *src, *dst;
-	int i, ret, error = 0;
+	int i, err = 0;
 	struct dma_addr addr;
 	unsigned long imm_data;
 
@@ -28,38 +28,38 @@ int main(void)
 
 	addr.addr = 0;
 	addr.port = PORT;
-	dma_raw_bind_addr(&addr);
+	dma_bind_addr(&addr);
 
-	dma_track_immediate();
 	dma_send_immediate(&addr, IMMEDIATE);
-	error = dma_raw_wait_recv();
-	if (error)
-		return -error;
+	err = dma_send_error();
+	if (err) {
+		printf("dma_send_immediate failed %d\n", err);
+		return -err;
+	}
 
 	imm_data = dma_read_immediate();
-	if (imm_data != IMMEDIATE)
+	if (imm_data != IMMEDIATE) {
+		printf("dma_read_immediate: expected %d, got %lu\n", IMMEDIATE, imm_data);
 		return imm_data;
-
-	// set up to track a receive
-	dma_track_put(dst, NITEMS);
+	}
 
 	// do a put to our own CPU
 	dma_contig_put(&addr, dst, src, NITEMS);
+	err = dma_send_error();
 
-	ret = dma_raw_wait_recv();
-	if (ret) {
-		printf("Error receiving data: %d\n", ret);
-		exit(EXIT_FAILURE);
+	if (err) {
+		printf("dma_contig_put failed %d\n", err);
+		return -err;
 	}
 
 	for (i = 0; i < NITEMS; i++) {
 		if (dst[i] != src[i]) {
 			printf("Expected %d got %d\n", src[i], dst[i]);
-			error = 1;
+			err = 1;
 		}
 	}
 
-	if (!error) {
+	if (!err) {
 		printf("Test completed without errors\n");
 	}
 

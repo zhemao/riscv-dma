@@ -17,7 +17,13 @@ DUMP=$(addsuffix .dump, $(BAREMETAL_TESTS))
 NOKERN_OBJS=$(addsuffix .o, $(BAREMETAL_TESTS) $(PK_TESTS))
 KERNEL_OBJS=$(addsuffix .o, $(LINUX_TESTS))
 
-default: $(LINUX_TESTS) $(PK_TESTS) $(ELF) $(HEX) $(DUMP)
+default: $(LINUX_TESTS) $(PK_TESTS) $(HEX) $(DUMP)
+
+bm-tests: $(HEX) $(DUMP)
+
+pk-tests: $(PK_TESTS)
+
+lnx-tests: $(LINUX_TESTS)
 
 $(LINUX_TESTS): %: %.o barrier.o
 	$(CC) $(CFLAGS) $< barrier.o $(LINUX_LDFLAGS) -o $@
@@ -37,7 +43,7 @@ $(ELF): %.elf: %.o init.o dma-ext.h
 $(NOKERN_OBJS): %.o: %.c dma-ext.h
 	$(CC) $(CFLAGS) -c $<
 
-$(KERNEL_OBJS): %.o: %.c dma-ext.h dma-syscalls.h
+$(KERNEL_OBJS): %.o: %.c dma-ext.h
 	$(CC) $(CFLAGS) -c $<
 
 %.o: %.c %.h

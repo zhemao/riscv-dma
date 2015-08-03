@@ -3,15 +3,12 @@
 
 #include <riscv-pk/encoding.h>
 
-#define DMA_RX_NOT_STARTED 1
-#define DMA_RX_NOT_FINISHED 2
-#define DMA_RX_NACK 3
-#define DMA_RX_NO_ROUTE 4
+#define DMA_RX_NACK 1
+#define DMA_RX_NO_ROUTE 2
 
-#define DMA_TX_NOT_FINISHED 1
-#define DMA_TX_PAGEFAULT 2
-#define DMA_TX_NACK 3
-#define DMA_TX_NOROUTE 4
+#define DMA_TX_PAGEFAULT 1
+#define DMA_TX_NACK 2
+#define DMA_TX_NOROUTE 3
 
 struct dma_addr {
 	unsigned long addr;
@@ -101,7 +98,7 @@ dma_contig_get(struct dma_addr *remote_addr,
 	dma_get(remote_addr, dst, src, len, 0, 0, 1);
 }
 
-static inline void dma_raw_bind_addr(struct dma_addr *addr)
+static inline void dma_bind_addr(struct dma_addr *addr)
 {
 	write_csr(0x804, addr->addr);
 	write_csr(0x805, addr->port);
@@ -124,14 +121,14 @@ static inline void dma_track_immediate(void)
 	asm volatile ("custom0 2, zero, zero, 2");
 }
 
-static inline int dma_poll_recv(void)
+static inline int dma_recv_error(void)
 {
 	int err;
 	asm volatile ("custom0 %[err], 0, 0, 3" : [err] "=r" (err));
 	return err;
 }
 
-static inline int dma_poll_send(void)
+static inline int dma_send_error(void)
 {
 	int err;
 	asm volatile ("custom0 %[err], 1, 0, 3" : [err] "=r" (err));
@@ -144,36 +141,6 @@ static inline void dma_send_immediate(struct dma_addr *addr, unsigned long imm)
 	asm volatile ("custom0 0, %[imm], 0, 4" : : [imm] "r" (imm));
 }
 
-static inline int dma_raw_wait_recv(void)
-{
-	int err;
-
-	do {
-		err = dma_poll_recv();
-	} while (err == DMA_RX_NOT_STARTED);
-
-	do {
-		err = dma_poll_recv();
-	} while (err == DMA_RX_NOT_FINISHED);
-
-	asm volatile ("fence");
-
-	return err;
-}
-
-static inline int dma_raw_wait_send(void)
-{
-	int err;
-
-	do {
-		err = dma_poll_send();
-	} while (err == DMA_TX_NOT_FINISHED);
-
-	asm volatile ("fence");
-
-	return err;
-}
-
 static inline void dma_read_src_addr(struct dma_addr *addr)
 {
 	addr->addr = read_csr(0x808);
@@ -184,6 +151,11 @@ static inline void dma_read_src_addr(struct dma_addr *addr)
 static inline unsigned long dma_read_immediate(void)
 {
 	return read_csr(0x80C);
+}
+
+static inline void dma_fence(void)
+{
+	asm volatile ("fence");
 }
 
 #endif

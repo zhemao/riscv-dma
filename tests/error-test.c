@@ -11,12 +11,12 @@ int main(void)
 	addr.addr = 0;
 	addr.port = PORT;
 
-	dma_raw_bind_addr(&addr);
+	dma_bind_addr(&addr);
 
 	// turn phys back off so we get a page fault
 	write_csr(0x80D, 0);
 	dma_contig_put(&addr, 0, 0, 1024);
-	err = dma_raw_wait_send();
+	err = dma_send_error();
 
 	if (err != DMA_TX_PAGEFAULT)
 		return (0x10 | err);
@@ -26,7 +26,7 @@ int main(void)
 
 	addr.port = 102;
 	dma_contig_put(&addr, dst, src, 12 * sizeof(int));
-	err = dma_raw_wait_send();
+	err = dma_send_error();
 	if (err != DMA_TX_NOROUTE)
 		return (0x20 | err);
 

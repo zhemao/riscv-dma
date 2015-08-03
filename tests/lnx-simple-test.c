@@ -7,7 +7,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "dma-syscalls.h"
+#include "dma-ext.h"
 
 #define NITEMS 5000
 
@@ -36,16 +36,15 @@ void parent_thread(struct unshared_state *unshared)
 	remote_addr.addr = 0;
 	remote_addr.port = CHILD_PORT;
 	dma_contig_put(&remote_addr, unshared->dst, unshared->src, NITEMS);
+	dma_fence();
 
-	ret = dma_wait_send();
+	ret = dma_send_error();
 	if (ret) {
 		fprintf(stderr, "send failed with error code: %d\n", ret);
 		exit(EXIT_FAILURE);
 	}
 
 	printf("Data sent\n");
-
-	dma_unbind_addr();
 }
 
 void child_thread(struct unshared_state *unshared)
@@ -61,7 +60,8 @@ void child_thread(struct unshared_state *unshared)
 
 	printf("Waiting for data\n");
 
-	ret = dma_wait_recv();
+	dma_fence();
+	ret = dma_recv_error();
 	if (ret) {
 		fprintf(stderr, "recv failed with error code: %d\n", ret);
 		exit(EXIT_FAILURE);
@@ -78,8 +78,6 @@ void child_thread(struct unshared_state *unshared)
 
 	if (!error)
 		printf("Child received all data with no errors\n");
-
-	dma_unbind_addr();
 }
 
 int main(void)
