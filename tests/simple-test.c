@@ -35,26 +35,15 @@ int main(void)
 	addr.port = PORT;
 	dma_bind_addr(&addr);
 
-	dma_track_immediate();
-	dma_send_immediate(&addr, IMMEDIATE);
+	dma_gather_put(&addr, dst, src, COPY_SIZE * sizeof(int), 0, 1);
 	dma_fence();
-
 	err = dma_send_error();
 	if (err)
-		return 0x10 | err;
-
-	if (dma_read_immediate() != IMMEDIATE)
-		return 0x20;
+		return 0x40 | err;
 
 	dma_read_src_addr(&addr);
 	if (addr.port != PORT)
 		return 0x30 | err;
-
-	dma_gather_put(&addr, dst, src, COPY_SIZE * sizeof(int), 0, 1);
-	dma_fence();
-	err = dma_recv_error();
-	if (err)
-		return 0x40 | err;
 
 	for (i = 0; i < DST_OFF; i++) {
 		if (dst_array[i] != 0)

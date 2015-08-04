@@ -14,7 +14,7 @@ int main(void)
 	dma_bind_addr(&addr);
 
 	// turn phys back off so we get a page fault
-	write_csr(0x80D, 0);
+	write_csr(0x80B, 0);
 	dma_contig_put(&addr, 0, 0, 1024);
 	dma_fence();
 	err = dma_send_error();
@@ -23,7 +23,7 @@ int main(void)
 		return (0x10 | err);
 
 	// now turn it back on
-	write_csr(0x80D, 1);
+	write_csr(0x80B, 1);
 
 	addr.port = 102;
 	dma_contig_put(&addr, dst, src, 12 * sizeof(int));
