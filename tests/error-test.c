@@ -16,6 +16,7 @@ int main(void)
 	// turn phys back off so we get a page fault
 	write_csr(0x80D, 0);
 	dma_contig_put(&addr, 0, 0, 1024);
+	dma_fence();
 	err = dma_send_error();
 
 	if (err != DMA_TX_PAGEFAULT)
@@ -26,6 +27,7 @@ int main(void)
 
 	addr.port = 102;
 	dma_contig_put(&addr, dst, src, 12 * sizeof(int));
+	dma_fence();
 	err = dma_send_error();
 	if (err != DMA_TX_NOROUTE)
 		return (0x20 | err);

@@ -48,6 +48,7 @@ int main(void)
 
 	dma_gather_put(&addr, mat_b, start,
 		seg_size, stride_size, nsegs);
+	dma_fence();
 	ret = dma_send_error();
 	if (ret)
 		return 0x10 | ret;
@@ -60,6 +61,7 @@ int main(void)
 
 	dma_scatter_get(&addr, start, mat_b,
 		seg_size, stride_size, nsegs);
+	dma_fence();
 	ret = dma_send_error();
 	if (ret)
 		return 0x30 | ret;

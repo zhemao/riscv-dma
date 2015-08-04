@@ -31,6 +31,7 @@ int main(void)
 	dma_bind_addr(&addr);
 
 	dma_send_immediate(&addr, IMMEDIATE);
+	dma_fence();
 	err = dma_send_error();
 	if (err) {
 		printf("dma_send_immediate failed %d\n", err);
@@ -45,6 +46,7 @@ int main(void)
 
 	// do a put to our own CPU
 	dma_contig_put(&addr, dst, src, NITEMS);
+	dma_fence();
 	err = dma_send_error();
 
 	if (err) {
