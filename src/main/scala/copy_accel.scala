@@ -54,7 +54,7 @@ class SegmentSender extends DMAModule {
   val s_idle :: s_req :: s_wait :: Nil = Enum(Bits(), 3)
   val state = Reg(init = s_idle)
 
-  val cmd = Queue(io.cmd)
+  val cmd = Queue(io.cmd, dmaQueueDepth)
   cmd.ready := (state === s_idle)
 
   io.busy := (state != s_idle) || cmd.valid

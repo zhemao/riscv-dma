@@ -14,6 +14,7 @@ trait DMAParameters extends UsesParameters {
   val dmaDataOffset = log2Up(dmaDataBytes)
   val dmaMaxXacts = params(DMAMaxXacts)
   val dmaXactIdBits = log2Up(dmaMaxXacts)
+  val dmaQueueDepth = params(DMAQueueDepth)
   val lnHeaderBits = params(LNHeaderBits)
 }
 
