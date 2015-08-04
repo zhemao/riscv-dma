@@ -6,7 +6,7 @@ LINUX_LDFLAGS=-pthread -lrt
 CFLAGS=-O2 -Wall
 
 BAREMETAL_TESTS=simple-test error-test matrix-test
-LINUX_TESTS=lnx-matrix-test lnx-simple-test client-test server-test
+LINUX_TESTS=lnx-matrix-test lnx-simple-test
 PK_TESTS=pk-simple-test pk-matrix-test
 ALL_TESTS=$(BAREMETAL_TESTS) $(LINUX_TESTS) $(PK_TESTS)
 
