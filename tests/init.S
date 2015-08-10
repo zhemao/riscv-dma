@@ -1,6 +1,6 @@
 .text
 .align 4
-.global _start, twobeat_src, twobeat_dst
+.global _start
 
 _start:
   // set accelerator to physical mode
